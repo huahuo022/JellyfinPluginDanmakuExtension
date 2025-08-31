@@ -31,7 +31,7 @@ import Logger from './log';
     };
 
     // 日志器（默认关闭调试，优先读取本地存储的开关）
-    let __initialDebug = true;
+    let __initialDebug = false;
     try {
         // 仅当运行在浏览器环境且可访问 localStorage 时读取
         const v = (typeof window !== 'undefined' && window.localStorage)
