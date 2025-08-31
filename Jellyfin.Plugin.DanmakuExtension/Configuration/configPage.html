@@ -141,10 +141,6 @@
                   style="background-color: #f44336; color: white; margin-right: 10px;">
                   <span>清空缓存</span>
                 </button>
-                <button is="emby-button" type="button" id="btnTest" class="raised emby-button"
-                  style="background-color: #13a373; color: white;">
-                  <span>测试按钮</span>
-                </button>
               </div>
               <div class="inputContainer">
                 <div class="paperList" style="margin-bottom: 15px;">
@@ -167,7 +163,7 @@
     </div>
     <script type="text/javascript">
       (function () {
-        var customJsTextarea, form, chkEnable, librariesContainer, txtDanmakuCacheMinutes, btnResetCacheDb, btnTest, txtProxyBaseUrl, txtServerBaseUrl;
+        var customJsTextarea, form, chkEnable, librariesContainer, txtDanmakuCacheMinutes, btnResetCacheDb, txtProxyBaseUrl, txtServerBaseUrl;
         var btnToggleDev, developerSection, txtAppId, txtAppSecret;
         var currentLibraries = [];
         var enabledLibraryIds = [];
@@ -1494,39 +1490,6 @@
           // 添加重置数据库按钮事件监听器
           if (btnResetCacheDb) {
             btnResetCacheDb.addEventListener('click', resetCacheDatabase);
-          }
-          function authTest() {
-            // 使用 POST，并以表单方式提交；danmaku_id 放在查询参数，其他配置放表单
-            const url = ApiClient.getUrl('danmaku/comment', {
-              danmaku_id: '190010004'
-            });
-
-            const formBody = new URLSearchParams({
-              chConvert: '1',
-              // black_source_list 需要是 JSON 字符串
-              black_source_list: JSON.stringify(['dandanplay']),
-              black_list: JSON.stringify([{ "isRegex": false, "pattern": "签" }])
-            }).toString();
-
-            ApiClient.ajax({
-              type: 'POST',
-              url: url,
-              contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
-              data: formBody,
-              dataType: 'json'
-            }).then(function (response) {
-              var message = '测试请求成功';
-              showToast(message, 3000);
-              console.log('danmaku/comment response:', response);
-            }).catch(function (err) {
-              var msg = (err && (err.statusText || err.message)) || err || '请求失败';
-              showToast('测试请求失败: ' + msg, 4000);
-              console.error(err);
-            });
-          }
-
-          if (btnTest) {
-            btnTest.addEventListener('click', authTest);
           }
 
 
