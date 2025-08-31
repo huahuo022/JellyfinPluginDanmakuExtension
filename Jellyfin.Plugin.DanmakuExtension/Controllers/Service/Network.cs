@@ -1,0 +1,225 @@
+using System.Web;
+using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
+using System.Text;
+
+
+namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
+
+public partial class DanmakuService
+{
+    /// <summary>
+    /// 通用：带缓存的 HTTP 请求。以 method+baseUrl+path+排序后的query+body 生成 MD5 cache_key（不含请求头），
+    /// 命中则返回缓存；未命中发起请求，若成功且为 JSON 则写入缓存。
+    /// 若 baseUrl 为 https://api.dandanplay.net 则自动生成并附加 dandanplay 认证请求头。
+    /// </summary>
+    public async Task<string> SendWithCacheAsync(
+        HttpMethod method,
+        string baseUrl,
+        string path,
+        IDictionary<string, string>? queryParams = null,
+        string? bodyString = null,
+        string? contentType = null,
+        Action<HttpRequestMessage>? requestCustomizer = null)
+    {
+        // 规范化并构造 URL
+        var fullUrl = BuildUrl(baseUrl, path, queryParams);
+
+        // 计算 cache_key：method|baseUrl|path|k1=v1&k2=v2|body
+        var serializedQuery = SerializeQuery(queryParams);
+        var normalizedBase = (baseUrl ?? string.Empty).TrimEnd('/');
+        var keyMaterial = string.Join("|", new[]
+        {
+            method.Method,
+            normalizedBase,
+            path ?? string.Empty,
+            serializedQuery,
+            bodyString ?? string.Empty
+        });
+        var cacheKey = ComputeMd5Lower(keyMaterial);
+
+        // 先查缓存
+        var cached = await GetFromCache(cacheKey);
+        if (cached != null)
+        {
+            await IncrementCacheHitAsync();
+            _logger.LogInformation("Cache HIT: {Path} {Query}", path, serializedQuery);
+            return cached;
+        }
+
+        await IncrementCacheMissAsync();
+
+        using var req = new HttpRequestMessage(method, fullUrl);
+        if (!string.IsNullOrEmpty(bodyString))
+        {
+            req.Content = new StringContent(bodyString, Encoding.UTF8, contentType ?? "application/json");
+        }
+        // 若为官方域名，则在此统一生成 dandanplay 所需认证请求头
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedBase) &&
+                normalizedBase.Equals("https://api.dandanplay.net", StringComparison.OrdinalIgnoreCase))
+            {
+                var cfg2 = Plugin.Instance?.Configuration as PluginConfiguration;
+                var appId2 = cfg2?.DandanplayAppId;
+                var appSecret2 = cfg2?.DandanplayAppSecret;
+                if (string.IsNullOrWhiteSpace(appId2)) appId2 = Environment.GetEnvironmentVariable("DANDANPLAY_APP_ID");
+                if (string.IsNullOrWhiteSpace(appSecret2)) appSecret2 = Environment.GetEnvironmentVariable("DANDANPLAY_APP_SECRET");
+
+                if (string.IsNullOrWhiteSpace(appId2) || string.IsNullOrWhiteSpace(appSecret2))
+                {
+                    const string msg = "未设置 dandanplay AppId/AppSecret（请设置环境变量 DANDANPLAY_APP_ID / DANDANPLAY_APP_SECRET），api.dandanplay.net 不加请求头无法访问";
+                    _logger.LogError(msg);
+                    throw new InvalidOperationException(msg);
+                }
+
+                var headers2 = GenerateDandanHeadersForUrl(appId2!, appSecret2!, fullUrl);
+                foreach (var kv in headers2)
+                {
+                    req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "自动生成 dandanplay 请求头失败");
+            throw;
+        }
+        // 允许调用方进行额外自定义（若有），可覆盖默认行为
+        requestCustomizer?.Invoke(req);
+
+        // 自动跟随重定向（最多5次），重定向后改用 GET
+        var currentResponse = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        try
+        {
+            int redirectCount = 0;
+            while ((int)currentResponse.StatusCode >= 300 && (int)currentResponse.StatusCode < 400 && currentResponse.Headers.Location != null && redirectCount < 5)
+            {
+                var redirectUrl = currentResponse.Headers.Location.IsAbsoluteUri
+                    ? currentResponse.Headers.Location.ToString()
+                    : new Uri(new Uri(fullUrl), currentResponse.Headers.Location).ToString();
+                _logger.LogInformation("HTTP {Status}, redirect to {Url}", (int)currentResponse.StatusCode, redirectUrl);
+                currentResponse.Dispose();
+                using var rNext = new HttpRequestMessage(HttpMethod.Get, redirectUrl);
+                currentResponse = await _httpClient.SendAsync(rNext, HttpCompletionOption.ResponseHeadersRead);
+                redirectCount++;
+            }
+
+            currentResponse.EnsureSuccessStatusCode();
+            var text = await currentResponse.Content.ReadAsStringAsync();
+            if (IsJsonResponse(currentResponse, text))
+            {
+                await SaveDanmakuToCache(cacheKey, text);
+            }
+            return text;
+        }
+        finally
+        {
+            currentResponse.Dispose();
+        }
+    }
+
+    private static string BuildUrl(string baseUrl, string path, IDictionary<string, string>? query)
+    {
+        var ub = new UriBuilder($"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
+        if (query != null && query.Count > 0)
+        {
+            var qs = string.Join("&", query
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => $"{HttpUtility.UrlEncode(kv.Key)}={HttpUtility.UrlEncode(kv.Value)}"));
+            ub.Query = qs;
+        }
+        return ub.Uri.ToString();
+    }
+
+    private static string SerializeQuery(IDictionary<string, string>? query)
+    {
+        if (query == null || query.Count == 0) return string.Empty;
+        return string.Join("&", query
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => $"{kv.Key}={kv.Value}"));
+    }
+
+    private static string ComputeMd5Lower(string s)
+    {
+        var bytes = Encoding.UTF8.GetBytes(s);
+        var hash = MD5.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static bool IsJsonResponse(HttpResponseMessage resp, string body)
+    {
+        try
+        {
+            var ct = resp.Content.Headers.ContentType?.MediaType ?? string.Empty;
+            if (!string.IsNullOrEmpty(ct) && ct.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        }
+        catch { }
+        // 容错：简单判断文本开头
+        var t = body?.TrimStart();
+        return !string.IsNullOrEmpty(t) && (t!.StartsWith("{") || t!.StartsWith("["));
+    }
+
+    /// <summary>
+    /// 生成 dandanplay API 所需的请求头。
+    /// 需要的头：X-AppId, X-Signature, X-Timestamp。
+    /// 签名算法：base64(sha256(AppId + Timestamp + Path + AppSecret))。
+    /// 注意：Path 仅为路径部分（不含域名、查询参数），例如：/api/v2/comment/123450001。
+    /// </summary>
+    /// <param name="appId">应用 ID</param>
+    /// <param name="appSecret">应用密钥</param>
+    /// <param name="path">API 路径（不含域名与查询参数）</param>
+    /// <param name="timestamp">可选的 Unix 时间戳（秒）；若不提供将使用当前 UTC 时间</param>
+    /// <returns>包含所需头的字典</returns>
+    public Dictionary<string, string> GenerateDandanHeaders(string appId, string appSecret, string path, long? timestamp = null)
+    {
+        var ts = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var signature = GenerateDandanSignature(appId, ts, path, appSecret);
+        return new Dictionary<string, string>
+        {
+            ["X-AppId"] = appId,
+            ["X-Signature"] = signature,
+            ["X-Timestamp"] = ts.ToString()
+        };
+    }
+
+    /// <summary>
+    /// 从完整 URL 生成 dandanplay API 所需请求头（自动提取 Path，忽略查询参数）。
+    /// </summary>
+    /// <param name="appId">应用 ID</param>
+    /// <param name="appSecret">应用密钥</param>
+    /// <param name="apiUrl">完整 API URL</param>
+    /// <param name="timestamp">可选的 Unix 时间戳（秒）</param>
+    /// <returns>包含所需头的字典</returns>
+    public Dictionary<string, string> GenerateDandanHeadersForUrl(string appId, string appSecret, string apiUrl, long? timestamp = null)
+    {
+        var uri = new Uri(apiUrl);
+        var path = uri.AbsolutePath; // 仅路径部分
+        return GenerateDandanHeaders(appId, appSecret, path, timestamp);
+    }
+
+    /// <summary>
+    /// 生成签名：base64(sha256(AppId + Timestamp + Path + AppSecret))
+    /// </summary>
+    private static string GenerateDandanSignature(string appId, long timestamp, string path, string appSecret)
+    {
+        var data = appId + timestamp + path + appSecret;
+        using var sha256 = SHA256.Create();
+        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(data));
+        return Convert.ToBase64String(hash);
+    }
+
+    public string GetBaseUrl()
+    {
+        var cfg = Plugin.Instance?.Configuration as PluginConfiguration;
+        var proxyBase = cfg?.DandanplayProxyBaseUrl;
+        var serverBase = cfg?.DandanplayServerBaseUrl;
+        var baseUrl = !string.IsNullOrWhiteSpace(proxyBase)
+            ? proxyBase!
+            : !string.IsNullOrWhiteSpace(serverBase)
+                ? serverBase!
+                : "https://api.dandanplay.net";
+        return baseUrl.TrimEnd('/');
+    }
+}

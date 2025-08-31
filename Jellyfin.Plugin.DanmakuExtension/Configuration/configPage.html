@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Danmaku Extension</title>
+  <style>
+    .inputContainer .inputLabel {
+      display: block;
+      margin-bottom: .5rem;
+    }
+
+    .checkboxList {
+      margin: 1rem 0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .checkboxList .sectioncheckbox {
+      margin: 0.5rem 0;
+    }
+
+    .sectionTitleContainer h3 {
+      margin: 1rem 0 0.5rem 0;
+      color: #52b54b;
+      font-size: 1.1em;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="DanmakuExtensionConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+    data-require="emby-textarea,emby-button,emby-checkbox">
+    <div data-role="content">
+      <div class="content-primary">
+        <form id="danmakuSettingsForm">
+          <div class="sectionTitleContainer">
+            <h2>弹幕扩展 - 设置</h2>
+          </div>
+          <div class="checkboxContainer">
+            <label class="emby-checkbox-label">
+              <input id="chkEnableInjection" type="checkbox" is="emby-checkbox" />
+              <span>将JS代码插入Jellyfin-web前端</span>
+            </label>
+          </div>
+          <div class="inputContainer">
+            <textarea is="emby-textarea" id="txtCustomJs" label="自定义 JS 代码" class="textarea-mono emby-textarea"
+              rows="10"
+              style="overflow-y: auto; height: 200px; width: 100%; max-width: 100vw; box-sizing: border-box; resize: vertical;"></textarea>
+            <div class="fieldDescription"> 输入js代码 | 可拖拽文件到框内 | 支持url地址</div>
+            <div id="jsButtonsBar" style="margin-top: 10px; text-align: right;">
+              <button is="emby-button" type="button" id="btnAddJs" class="raised emby-button"
+                style="background-color: #4b59b5; color: white; margin-right: 10px;">
+                <span>添加条目</span>
+              </button>
+              <button is="emby-button" type="button" id="btnSelectFile" class="raised emby-button"
+                style="background-color: #13a373; color: white;">
+                <span>选择文件</span>
+              </button>
+              <input type="file" id="fileInput" accept=".js" multiple style="display: none;">
+            </div>
+
+            <!-- JS 列表（表单区块） -->
+            <div class="sectionTitleContainer">
+              <h3>JS 列表</h3>
+            </div>
+            <div id="jsEntriesContainer" class="paperList" style="padding: 8px 0;">
+              <div id="jsEntriesEmpty" style="opacity: .7; padding: 8px 12px;">暂无条目，点击“添加条目”将当前文本保存为一个条目</div>
+            </div>
+            <div class="fieldDescription"> 拖拽改变文件顺序,会实际影响加载顺序 | 添加并保存后CTRL+F5刷新资源</div>
+            <div id="jsCombinedBar" style="margin-top: 10px; text-align: right;">
+              <button is="emby-button" type="button" id="btnViewCombined" class="raised emby-button"
+                style="background-color: #607d8b; color: white;">
+                <span>查看完整文件</span>
+              </button>
+            </div>
+            <!-- 注意：为避免嵌套 form 的无效 HTML，这些隐藏输入会直接放在主表单中 -->
+          </div>
+          <!-- dandanplay 代理与自定义服务器设置（开发用） -->
+          <div class="sectionTitleContainer">
+            <h3>网络设置</h3>
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="txtProxyBaseUrl">代理地址</label>
+            <input is="emby-input" id="txtProxyBaseUrl" label="代理地址" type="text" class="emby-input" placeholder="默认为 空">
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="txtServerBaseUrl">自定义服务器地址</label>
+            <input is="emby-input" id="txtServerBaseUrl" label="自定义服务器地址" type="text" class="emby-input"
+              placeholder="默认为 https://api.dandanplay.net">
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="txtDanmakuCacheMinutes">缓存时间(分钟)</label>
+            <input is="emby-input" id="txtDanmakuCacheMinutes" label="缓存时间(分钟)" placeholder="0" type="number"
+              pattern="[0-9-]*" min="-1" step="1" class="emby-input">
+            <div class="fieldDescription">-1表示永久缓存，0表示不缓存，1-525600(365天)</div>
+          </div>
+          <div class="sectionTitleContainer">
+            <h3>启用弹幕的媒体库</h3>
+          </div>
+          <div id="librariesContainer" class="checkboxList paperList" style="padding: 0.5em 1em;">
+            <!-- 媒体库列表将在这里动态生成 -->
+          </div>
+          <div class="buttons">
+            <button is="emby-button" type="submit" class="raised button-submit block emby-button"
+              id="btnSaveCustomJs">保存设置</button>
+          </div>
+          <!-- 开发者选项开关按钮 -->
+          <div class="sectionTitleContainer flex align-items-center"
+            style="margin-top: 20px; justify-content: flex-end;">
+            <button is="emby-button" type="button" id="btnToggleDev" class="raised emby-button"
+              style="background-color: #607d8b; color: white;">
+              <span>开发者选项</span>
+            </button>
+          </div>
+
+          <!-- 开发者选项区域（默认隐藏） -->
+          <div id="developerSection" style="display: none; margin-top: 10px;">
+            <div class="sectionTitleContainer">
+              <h3>开发者设置</h3>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="txtAppId">AppId</label>
+              <input is="emby-input" id="txtAppId" label="AppId" type="text" class="emby-input" placeholder="">
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="txtAppSecret">AppSecret</label>
+              <input is="emby-input" id="txtAppSecret" label="AppSecret" type="password" class="emby-input"
+                placeholder="">
+            </div>
+
+            <!-- 缓存统计信息部分（移动到开发者选项内） -->
+            <div id="cacheStatsContainer" style="margin-top: 30px;">
+              <div class="sectionTitleContainer">
+                <h3>缓存数据库</h3>
+              </div>
+              <div class="sectionTitleContainer flex align-items-center"
+                style="margin-bottom: 15px; justify-content: flex-end;">
+                <button is="emby-button" type="button" id="btnResetCacheDb" class="raised emby-button"
+                  style="background-color: #f44336; color: white; margin-right: 10px;">
+                  <span>清空缓存</span>
+                </button>
+                <button is="emby-button" type="button" id="btnTest" class="raised emby-button"
+                  style="background-color: #13a373; color: white;">
+                  <span>测试按钮</span>
+                </button>
+              </div>
+              <div class="inputContainer">
+                <div class="paperList" style="margin-bottom: 15px;">
+                  <div
+                    style="padding: 15px; border: 1px solid #333; border-radius: 4px; background-color: rgba(255, 255, 255, 0.02); font-family: monospace;">
+                    <div style="margin-bottom: 8px;">请求次数: <span id="totalRequests" style="font-weight: bold;">-</span>
+                    </div>
+                    <div style="margin-bottom: 8px;">缓存命中次数: <span id="cacheHitCount"
+                        style="font-weight: bold;">-</span>
+                      (<span id="cacheHitRate" style="font-weight: bold;">-</span>)</div>
+                    <div>数据库大小: <span id="cacheDatabaseSize" style="font-weight: bold;">-</span> (<span id="cacheCount"
+                        style="font-weight: bold;">-</span>条)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script type="text/javascript">
+      (function () {
+        var customJsTextarea, form, chkEnable, librariesContainer, txtDanmakuCacheMinutes, btnResetCacheDb, btnTest, txtProxyBaseUrl, txtServerBaseUrl;
+        var btnToggleDev, developerSection, txtAppId, txtAppSecret;
+        var currentLibraries = [];
+        var enabledLibraryIds = [];
+        var pluginId = null; // 动态获取的插件ID
+        // JS 片段管理
+        var jsEntries = []; // {name, base64, type: 'url' | 'js'}
+        var lastFileName = '';
+        var selectedEntryIndex = -1; // 当前“修改中”的条目索引
+
+        function b64Encode(str) {
+          try {
+            return btoa(unescape(encodeURIComponent(str)));
+          } catch (e) {
+            // 回退：可能包含二进制，简单采用 btoa
+            return btoa(str);
+          }
+        }
+        function b64Decode(b64) {
+          try {
+            return decodeURIComponent(escape(atob(b64)));
+          } catch (e) {
+            return atob(b64);
+          }
+        }
+
+        // 更详细判断是否为 http/https URL
+        function isHttpUrl(text) {
+          if (!text || typeof text !== 'string') return false;
+          var s = text.trim();
+          // 只允许 http/https，且必须有主机名
+          var urlPattern = /^(https?:\/\/)([\w\-]+(\.[\w\-]+)+)(:[0-9]+)?(\/[^\s]*)?$/i;
+          // 允许带端口和路径，但不允许空主机或伪造
+          if (!urlPattern.test(s)) return false;
+          // 进一步排除如 'http://', 'https://' 这种无主机的情况
+          var hostMatch = s.match(/^https?:\/\/([^\/\s:]+)(:[0-9]+)?/i);
+          if (!hostMatch || !hostMatch[1] || hostMatch[1].length < 3) return false;
+          // 可选：排除本地地址（如 localhost, 127.0.0.1）
+          // var host = hostMatch[1].toLowerCase();
+          // if (host === 'localhost' || /^127\./.test(host)) return false;
+          return true;
+        }
+
+        // IndexedDB 操作工具函数
+        var indexedDBHelper = {
+          // 支持的表配置
+          tableConfigs: {
+            'js_check_cache': { keyPath: 'url' },
+            // 可以在这里添加更多表配置
+            // 'other_table': { keyPath: 'id' }
+          },
+
+          openDB: function (tableName) {
+            var self = this;
+            tableName = tableName || 'js_check_cache';
+
+            return new Promise(function (resolve, reject) {
+              var request = indexedDB.open('DanmakuDB', 1);
+
+              request.onerror = function () {
+                reject(request.error);
+              };
+
+              request.onsuccess = function () {
+                resolve(request.result);
+              };
+
+              request.onupgradeneeded = function () {
+                var db = request.result;
+                // 创建所有已配置的表
+                for (var table in self.tableConfigs) {
+                  if (!db.objectStoreNames.contains(table)) {
+                    db.createObjectStore(table, self.tableConfigs[table]);
+                  }
+                }
+              };
+            });
+          },
+
+          get: function (key, tableName, expireTimeMs) {
+            var self = this;
+            tableName = tableName || 'js_check_cache';
+            expireTimeMs = expireTimeMs || 600000; // 默认10分钟
+
+            return this.openDB(tableName).then(function (db) {
+              return new Promise(function (resolve, reject) {
+                var transaction = db.transaction([tableName], 'readonly');
+                var store = transaction.objectStore(tableName);
+                var request = store.get(key);
+
+                request.onerror = function () {
+                  reject(request.error);
+                };
+
+                request.onsuccess = function () {
+                  var result = request.result;
+                  if (result) {
+                    // 检查是否过期
+                    var now = Date.now();
+                    if (result.timestamp && (now - result.timestamp > expireTimeMs)) {
+                      // 过期了，删除并返回null
+                      self.delete(key, tableName);
+                      resolve(null);
+                    } else {
+                      resolve(result.data);
+                    }
+                  } else {
+                    resolve(null);
+                  }
+                };
+              });
+            });
+          },
+
+          set: function (key, data, tableName) {
+            tableName = tableName || 'js_check_cache';
+            var keyPath = this.tableConfigs[tableName] ? this.tableConfigs[tableName].keyPath : 'url';
+
+            return this.openDB(tableName).then(function (db) {
+              return new Promise(function (resolve, reject) {
+                var transaction = db.transaction([tableName], 'readwrite');
+                var store = transaction.objectStore(tableName);
+
+                var record = {
+                  data: data,
+                  timestamp: Date.now()
+                };
+                record[keyPath] = key;
+
+                var request = store.put(record);
+
+                request.onerror = function () {
+                  reject(request.error);
+                };
+
+                request.onsuccess = function () {
+                  resolve();
+                };
+              });
+            });
+          },
+
+          delete: function (key, tableName) {
+            tableName = tableName || 'js_check_cache';
+
+            return this.openDB(tableName).then(function (db) {
+              return new Promise(function (resolve, reject) {
+                var transaction = db.transaction([tableName], 'readwrite');
+                var store = transaction.objectStore(tableName);
+                var request = store.delete(key);
+
+                request.onerror = function () {
+                  reject(request.error);
+                };
+
+                request.onsuccess = function () {
+                  resolve();
+                };
+              });
+            }).catch(function () {
+              // 忽略删除错误
+              resolve();
+            });
+          },
+
+          // 清空整个表
+          clear: function (tableName) {
+            tableName = tableName || 'js_check_cache';
+
+            return this.openDB(tableName).then(function (db) {
+              return new Promise(function (resolve, reject) {
+                var transaction = db.transaction([tableName], 'readwrite');
+                var store = transaction.objectStore(tableName);
+                var request = store.clear();
+
+                request.onerror = function () {
+                  reject(request.error);
+                };
+
+                request.onsuccess = function () {
+                  resolve();
+                };
+              });
+            }).catch(function () {
+              // 忽略清空错误
+              resolve();
+            });
+          },
+
+          // 获取表中所有键
+          getAllKeys: function (tableName) {
+            tableName = tableName || 'js_check_cache';
+
+            return this.openDB(tableName).then(function (db) {
+              return new Promise(function (resolve, reject) {
+                var transaction = db.transaction([tableName], 'readonly');
+                var store = transaction.objectStore(tableName);
+                var request = store.getAllKeys();
+
+                request.onerror = function () {
+                  reject(request.error);
+                };
+
+                request.onsuccess = function () {
+                  resolve(request.result || []);
+                };
+              });
+            }).catch(function () {
+              return [];
+            });
+          }
+        };
+
+        // 与后端 js_cache 交互（表单：application/x-www-form-urlencoded）
+        function postJsCache(method, urlBase64) {
+          method = method || 'check';
+          urlBase64 = urlBase64 || '';
+          var tableName = 'js_check_cache'; // 指定使用的表名
+          var expireTime = 600000; // 10分钟过期时间
+
+          // 如果method不为'check'，清除缓存
+          if (method !== 'check' && urlBase64) {
+            indexedDBHelper.delete(urlBase64, tableName).catch(function () {
+              // 忽略删除错误
+            });
+          }
+
+          // 如果是check请求，先尝试从缓存获取
+          if (method === 'check' && urlBase64) {
+            return indexedDBHelper.get(urlBase64, tableName, expireTime).then(function (cachedData) {
+              if (cachedData) {
+                // 返回缓存的数据
+                return Promise.resolve(cachedData);
+              }
+
+              // 缓存中没有，发起网络请求
+              return makeNetworkRequest();
+            }).catch(function () {
+              // IndexedDB操作失败，直接发起网络请求
+              return makeNetworkRequest();
+            });
+          } else {
+            // 非check请求，直接发起网络请求
+            return makeNetworkRequest();
+          }
+
+          function makeNetworkRequest() {
+            var formStr = 'url_base64=' + encodeURIComponent(urlBase64) + '&method=' + encodeURIComponent(method);
+            var url = ApiClient.getUrl('danmaku/js_cache');
+
+            var requestPromise;
+            if (ApiClient && typeof ApiClient.ajax === 'function') {
+              requestPromise = ApiClient.ajax({
+                type: 'POST',
+                url: url,
+                data: formStr,
+                contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+                dataType: 'json'
+              });
+            } else {
+              var token = (ApiClient && (ApiClient._accessToken || ApiClient.accessToken)) || '';
+              var headers = { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
+              if (token) headers['X-Emby-Token'] = token;
+              requestPromise = fetch(url, { method: 'POST', headers: headers, body: formStr })
+                .then(function (res) { if (!res.ok) throw new Error(res.statusText || 'HTTP ' + res.status); return res.json(); });
+            }
+
+            // 如果是check请求且成功，将结果缓存
+            if (method === 'check' && urlBase64) {
+              return requestPromise.then(function (response) {
+                // 请求成功，缓存结果
+                indexedDBHelper.set(urlBase64, response, tableName).catch(function () {
+                  // 忽略缓存写入错误
+                });
+                return response;
+              }).catch(function (error) {
+                // 请求失败，不缓存，直接抛出错误
+                throw error;
+              });
+            } else {
+              return requestPromise;
+            }
+          }
+        }
+
+        // 为 URL 条目创建并绑定“缓存控制”按钮
+        function createUrlCacheButton(ent) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'raised emby-button';
+          btn.style.marginRight = '6px';
+
+          function formatBytes(bytes) {
+            bytes = (typeof bytes === 'number' && bytes >= 0) ? bytes : 0;
+            if (bytes < 1024) return bytes + ' B';
+            var kb = bytes / 1024; if (kb < 1024) return kb.toFixed(2) + ' KB';
+            var mb = kb / 1024; if (mb < 1024) return mb.toFixed(2) + ' MB';
+            var gb = mb / 1024; return gb.toFixed(2) + ' GB';
+          }
+
+          function approxBytesFromBase64Len(len) {
+            // 近似值：每4个base64字符≈3字节（忽略padding带来的微小误差）
+            var n = (typeof len === 'number' && len >= 0) ? len : 0;
+            return Math.floor(n * 3 / 4);
+          }
+
+          function setTooltip(meta) {
+            if (meta && (typeof meta.base64_length === 'number' || typeof meta.updated_at !== 'undefined')) {
+              var bytes = approxBytesFromBase64Len(meta.base64_length || 0);
+              var sizeText = '大小: ' + formatBytes(bytes);
+              var timeText = '';
+              try {
+                if (meta.updated_at) {
+                  var d = new Date(meta.updated_at);
+                  if (!isNaN(d.getTime())) {
+                    timeText = ' | 缓存时间: ' + d.toLocaleString();
+                  }
+                }
+              } catch (_) { }
+              btn.title = sizeText + timeText;
+            } else {
+              btn.title = '不下载会使用 import 在线加载，可能会加载失败';
+            }
+          }
+
+          function setAsDownload() {
+            btn.disabled = false;
+            btn.textContent = '下载缓存';
+            btn.style.backgroundColor = '#13a373';
+            btn.style.color = 'white';
+            setTooltip()
+            btn.onclick = function () {
+              btn.disabled = true;
+              btn.textContent = '下载中...';
+              postJsCache('download', ent.base64)
+                .then(function (data) {
+                  showToast('已缓存：' + (ent.name || ''), 1500);
+                  if (data && data.exists) {
+                    setAsDelete({ base64_length: data.base64_length, updated_at: data.updated_at });
+                  } else {
+                    setAsDelete();
+                  }
+                })
+                .catch(function (err) {
+                  showToast('下载失败: ' + (err && (err.statusText || err.message) || err), 3000);
+                  btn.disabled = false;
+                  btn.textContent = '下载缓存';
+                });
+            };
+          }
+
+          function setAsDelete(meta) {
+            btn.disabled = false;
+            btn.textContent = '清除缓存';
+            btn.style.backgroundColor = '#f44336';
+            btn.style.color = 'white';
+            // 设置悬停提示：仅在传入 meta 时显示，不进行额外请求
+            setTooltip(meta);
+            btn.onclick = function () {
+              if (!confirm('确认清除此 URL 的缓存吗？')) return;
+              btn.disabled = true;
+              btn.textContent = '删除中...';
+              postJsCache('delete', ent.base64)
+                .then(function () {
+                  showToast('已清除缓存：' + (ent.name || ''), 1500);
+                  setAsDownload();
+                })
+                .catch(function (err) {
+                  showToast('删除失败: ' + (err && (err.statusText || err.message) || err), 3000);
+                  btn.disabled = false;
+                  btn.textContent = '清除缓存';
+                });
+            };
+          }
+
+          // JS 类型隐藏按钮
+          if (!ent || (ent.type !== 'url')) {
+            btn.style.display = 'none';
+            return btn;
+          }
+
+          // 初始为“检查中”
+          btn.disabled = true;
+          btn.textContent = '检查中...';
+          btn.style.backgroundColor = '#607d8b';
+          btn.style.color = 'white';
+          postJsCache('check', ent.base64)
+            .then(function (data) {
+              if (data && data.exists) {
+                setAsDelete({ base64_length: data.base64_length, updated_at: data.updated_at });
+              } else {
+                setAsDownload();
+              }
+            })
+            .catch(function () {
+              // 检查失败也允许用户尝试下载
+              setAsDownload();
+            });
+
+          return btn;
+        }
+
+        function entryDisplayName(defaultName) {
+          if (lastFileName && lastFileName.trim()) return lastFileName.trim();
+          if (defaultName && defaultName.trim()) return defaultName.trim();
+          var d = new Date();
+          var two = n => (n < 10 ? ('0' + n) : ('' + n));
+          return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+        }
+
+        // 仅用于默认命名：返回当前时间字符串（不使用 lastFileName）
+        function nowDateTimeLabel() {
+          var d = new Date();
+          var two = function (n) { return n < 10 ? ('0' + n) : ('' + n); };
+          return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+        }
+
+        // 截断显示用名称（保留完整值用于 title 或编辑）
+        function truncateName(str, maxLen) {
+          try {
+            var s = String(str || '');
+            var m = (typeof maxLen === 'number' && maxLen > 3) ? maxLen : 24;
+            if (s.length <= m) return s;
+            return s.slice(0, m - 1) + '…';
+          } catch (_) { return str || ''; }
+        }
+
+        function ensureHiddenInput(index) {
+          var id = 'id-jsdata-' + index;
+          var inp = form.querySelector('input[name="' + id + '"]');
+          if (!inp) {
+            inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = id;
+            form.appendChild(inp);
+          }
+          return inp;
+        }
+
+        function syncHiddenInputs() {
+          // 清除旧的隐藏输入
+          Array.from(form.querySelectorAll('input[name^="id-jsdata-"]')).forEach(function (n) { n.remove(); });
+          // 重新生成
+          jsEntries.forEach(function (ent, i) {
+            var hidden = ensureHiddenInput(i + 1);
+            hidden.value = ent.base64;
+            // 添加条目类型到隐藏项属性
+            hidden.setAttribute('data-type', (ent && ent.type) ? ent.type : 'js');
+            // 同步名称到隐藏项，便于回退读取
+            hidden.setAttribute('data-name', (ent && ent.name) ? ent.name : '');
+          });
+        }
+
+        function renderEntries() {
+          var container = document.getElementById('jsEntriesContainer');
+          var empty = document.getElementById('jsEntriesEmpty');
+          container.innerHTML = '';
+          if (!jsEntries.length) {
+            if (!empty) {
+              empty = document.createElement('div');
+              empty.id = 'jsEntriesEmpty';
+              empty.style.opacity = '.7';
+              empty.style.padding = '8px 12px';
+              empty.textContent = '暂无条目，点击“添加代码”将当前文本保存为一个条目';
+            }
+            container.appendChild(empty);
+            return;
+          }
+          jsEntries.forEach(function (ent, idx) {
+            var row = document.createElement('div');
+            row.className = 'listItem';
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.padding = '6px 12px';
+            row.style.borderBottom = '1px solid #333';
+            if (selectedEntryIndex === idx) {
+              row.style.background = 'rgba(75, 89, 181, 0.15)';
+              row.style.boxShadow = 'inset 0 0 0 1px #4b59b5';
+            }
+
+            var idxSpan = document.createElement('div');
+            idxSpan.textContent = (idx + 1) + '.';
+            idxSpan.style.marginRight = '8px';
+
+            // 类型小图标（URL: link, JS: code）
+            var typeIcon = document.createElement('span');
+            typeIcon.className = 'material-icons';
+            var t = (ent && ent.type) ? ent.type : 'js';
+            typeIcon.textContent = t === 'url' ? 'link' : 'code';
+            typeIcon.title = t === 'url' ? 'URL' : 'JS';
+            typeIcon.style.fontSize = '18px';
+            typeIcon.style.marginRight = '6px';
+            typeIcon.style.opacity = '0.95';
+            typeIcon.style.color = t === 'url' ? '#13a373' : '#4b59b5';
+
+            var nameBox = document.createElement('input');
+            nameBox.type = 'text';
+            nameBox.className = 'emby-input';
+            nameBox.value = ent.name;
+            // 始终可编辑
+            nameBox.style.flex = '1';
+            nameBox.style.minWidth = '0';
+            nameBox.style.marginRight = '12px';
+            // 选中（“取消”状态）时禁用名称编辑
+            if (selectedEntryIndex === idx) {
+              nameBox.disabled = true;
+              nameBox.title = '修改中：名称不可编辑';
+              // nameBox.style.opacity = '0.7';
+            } else {
+              nameBox.disabled = false;
+              nameBox.title = '';
+              // nameBox.style.opacity = '';
+            }
+            nameBox.addEventListener('blur', function () {
+              // 失焦后保存名字
+              var v = nameBox.value.trim();
+              if (v) {
+                ent.name = v;
+              } else {
+                // 若为空则保持原名
+                nameBox.value = ent.name;
+              }
+              // 重渲染以更新序号显示等
+              renderEntries();
+            });
+            nameBox.addEventListener('keydown', function (ev) {
+              if (ev.key === 'Enter') {
+                ev.preventDefault();
+                nameBox.blur();
+              }
+            });
+
+            // 拖拽把手 + 行拖拽排序
+            var dragHandle = document.createElement('button');
+            dragHandle.type = 'button';
+            dragHandle.className = 'raised emby-button';
+            dragHandle.title = '拖拽以调整顺序';
+            dragHandle.style.marginRight = '6px';
+            dragHandle.style.backgroundColor = '#607d8b';
+            dragHandle.style.color = 'white';
+            dragHandle.textContent = '☰';
+            dragHandle.setAttribute('draggable', 'true');
+
+            row.dataset.index = idx;
+
+            // 仅在把手上启动拖拽
+            var ghostEl = null;
+            dragHandle.addEventListener('dragstart', function (e) {
+              e.stopPropagation();
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', String(idx));
+              row.style.opacity = '0.6';
+
+              // 创建整行的克隆作为拖拽预览图，并添加边缘高亮
+              var rect = row.getBoundingClientRect();
+              ghostEl = row.cloneNode(true);
+              ghostEl.style.boxShadow = '0 0 0 2px #4b59b5';
+              ghostEl.style.background = 'rgba(255, 255, 255, 0.08)';
+              ghostEl.style.width = rect.width + 'px';
+              ghostEl.style.height = rect.height + 'px';
+              ghostEl.style.position = 'absolute';
+              ghostEl.style.top = '-9999px';
+              ghostEl.style.left = '-9999px';
+              ghostEl.style.opacity = '0.95';
+              ghostEl.style.pointerEvents = 'none';
+              document.body.appendChild(ghostEl);
+
+              // 设置拖拽预览图到光标中心
+              var offsetX = Math.floor(rect.width - 150);
+              var offsetY = Math.floor(rect.height / 2);
+              if (e.dataTransfer.setDragImage) {
+                e.dataTransfer.setDragImage(ghostEl, offsetX, offsetY);
+              }
+            });
+            dragHandle.addEventListener('dragend', function () {
+              row.style.opacity = '';
+              if (ghostEl && ghostEl.parentNode) {
+                ghostEl.parentNode.removeChild(ghostEl);
+                ghostEl = null;
+              }
+            });
+            row.addEventListener('dragover', function (e) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              row.style.backgroundColor = 'rgba(255,255,255,0.06)';
+            });
+            row.addEventListener('dragleave', function () {
+              if (selectedEntryIndex === idx) {
+                row.style.background = 'rgba(75, 89, 181, 0.15)';
+              } else {
+                row.style.background = '';
+              }
+            });
+            row.addEventListener('drop', function (e) {
+              e.preventDefault();
+              row.style.background = selectedEntryIndex === idx ? 'rgba(75, 89, 181, 0.15)' : '';
+              var from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+              var to = idx;
+              if (isNaN(from) || from === to) return;
+              var moved = jsEntries.splice(from, 1)[0];
+              jsEntries.splice(to, 0, moved);
+              if (selectedEntryIndex === from) {
+                selectedEntryIndex = to;
+              } else if (selectedEntryIndex > from && selectedEntryIndex <= to) {
+                selectedEntryIndex -= 1;
+              } else if (selectedEntryIndex < from && selectedEntryIndex >= to) {
+                selectedEntryIndex += 1;
+              }
+              syncHiddenInputs();
+              renderEntries();
+            });
+
+            var btnEdit = document.createElement('button');
+            btnEdit.type = 'button';
+            btnEdit.className = 'raised emby-button';
+            btnEdit.style.marginRight = '6px';
+            if (selectedEntryIndex === idx) {
+              btnEdit.textContent = '取消';
+              btnEdit.style.backgroundColor = '#9e9e9e';
+              btnEdit.style.color = 'white';
+              btnEdit.addEventListener('click', function () {
+                clearSelection();
+              });
+            } else {
+              btnEdit.textContent = '查看';
+              btnEdit.style.backgroundColor = '#2196f3';
+              btnEdit.style.color = 'white';
+              btnEdit.addEventListener('click', function () {
+                var txt = b64Decode(ent.base64);
+                customJsTextarea.value = txt;
+                setSelection(idx);
+                showApplyButton(ent.name);
+                showToast('已加载条目到编辑器', 1500);
+              });
+            }
+
+            var btnDelete = document.createElement('button');
+            btnDelete.type = 'button';
+            btnDelete.className = 'raised emby-button';
+            btnDelete.style.backgroundColor = '#f44336';
+            btnDelete.style.color = 'white';
+            btnDelete.textContent = '删除';
+            btnDelete.addEventListener('click', function () {
+              if (confirm('确认删除该条目吗？')) {
+                jsEntries.splice(idx, 1);
+                if (selectedEntryIndex === idx) {
+                  clearSelection();
+                } else if (selectedEntryIndex > idx) {
+                  selectedEntryIndex -= 1;
+                }
+                syncHiddenInputs();
+                renderEntries();
+              }
+            });
+
+            row.appendChild(idxSpan);
+            row.appendChild(typeIcon);
+            row.appendChild(nameBox);
+            // URL 条目：显示缓存控制按钮（检查/下载/删除）
+            try {
+              var cacheBtn = createUrlCacheButton(ent);
+              row.appendChild(cacheBtn);
+            } catch (_) { /* ignore */ }
+            row.appendChild(dragHandle);
+            row.appendChild(btnEdit);
+            row.appendChild(btnDelete);
+            container.appendChild(row);
+          });
+        }
+
+        function setSelection(idx) {
+          selectedEntryIndex = idx;
+          renderEntries();
+        }
+        function clearSelection() {
+          selectedEntryIndex = -1;
+          removeApplyButton();
+          renderEntries();
+        }
+
+        function showApplyButton(name) {
+          var bar = document.getElementById('jsButtonsBar');
+          removeApplyButton();
+          var applyBtn = document.createElement('button');
+          applyBtn.is = 'emby-button';
+          applyBtn.type = 'button';
+          applyBtn.id = 'btnApplyToSelected';
+          applyBtn.className = 'raised emby-button';
+          applyBtn.style.backgroundColor = '#2196f3';
+          applyBtn.style.color = 'white';
+          applyBtn.style.marginRight = '10px';
+          var display = truncateName(name, 24);
+          applyBtn.title = '应用到 ' + (name || '');
+          applyBtn.innerHTML = '<span>应用到 ' + display + '</span>';
+          applyBtn.addEventListener('click', function () {
+            if (selectedEntryIndex < 0 || selectedEntryIndex >= jsEntries.length) return;
+            var raw = (customJsTextarea.value || '').trim();
+            if (!raw) {
+              showToast('内容为空，未应用', 2000);
+              return;
+            }
+            var updated = b64Encode(raw);
+            jsEntries[selectedEntryIndex].base64 = updated;
+            jsEntries[selectedEntryIndex].type = isHttpUrl(raw) ? 'url' : 'js';
+            syncHiddenInputs();
+            // 成功保存到表单后清空文本框
+            customJsTextarea.value = '';
+            showToast('已应用到：' + jsEntries[selectedEntryIndex].name, 1500);
+            clearSelection();
+          });
+          var addBtn = document.getElementById('btnAddJs');
+          if (addBtn && addBtn.parentElement === bar) {
+            bar.insertBefore(applyBtn, addBtn);
+          } else {
+            bar.prepend(applyBtn);
+          }
+        }
+
+        function removeApplyButton() {
+          var old = document.getElementById('btnApplyToSelected');
+          if (old && old.parentNode) old.parentNode.removeChild(old);
+        }
+
+        function addCurrentTextAsEntry() {
+          var raw = (customJsTextarea.value || '').trim();
+          if (!raw) {
+            showToast('内容为空，未添加', 2000);
+            return;
+          }
+          var b64 = b64Encode(raw);
+          var type = isHttpUrl(raw) ? 'url' : 'js';
+          var name;
+          if (type === 'url') {
+            name = '未命名网络文件:' + raw;
+          } else {
+            var bytes;
+            try {
+              bytes = new Blob([raw], { type: 'text/plain;charset=utf-8' }).size;
+            } catch (_) {
+              // 回退为按 UTF-8 字节长度估算
+              try { bytes = unescape(encodeURIComponent(raw)).length; } catch (__) { bytes = raw.length; }
+            }
+            var sizeKb = Math.ceil((bytes || 0) / 1024);
+            if (sizeKb < 1) sizeKb = 1; // 至少显示1kb
+            name = '未命名代码(' + sizeKb + 'kb) ' + nowDateTimeLabel();
+          }
+          jsEntries.push({ name: name, base64: b64, type: type });
+          syncHiddenInputs();
+          renderEntries();
+          // 聚焦到新条目的名称输入框
+          setTimeout(function () {
+            try {
+              var container = document.getElementById('jsEntriesContainer');
+              var rows = container ? container.querySelectorAll('.listItem') : null;
+              var targetIdx = jsEntries.length - 1;
+              var row = null;
+              if (rows && rows.length) {
+                // 优先通过 data-index 精确匹配
+                row = Array.from(rows).find(function (r) { return parseInt(r.dataset.index, 10) === targetIdx; }) || rows[rows.length - 1];
+              }
+              var input = row ? row.querySelector('input.emby-input') : null;
+              if (input && typeof input.focus === 'function') {
+                input.focus();
+                if (typeof input.select === 'function') input.select();
+              }
+            } catch (_) { }
+          }, 0);
+          // 成功保存到表单后清空文本框
+          customJsTextarea.value = '';
+          showToast('已保存为条目: ' + name, 2000);
+        }
+
+        function showToast(message, durationMs) {
+          durationMs = typeof durationMs === 'number' ? durationMs : 3000;
+          var container = document.querySelector('.toastContainer');
+          if (!container) {
+            container = document.createElement('div');
+            container.className = 'toastContainer';
+            document.body.appendChild(container);
+          }
+          var toast = document.createElement('div');
+          toast.className = 'toast';
+          toast.textContent = message || '';
+          container.appendChild(toast);
+          // 触发显示动画
+          requestAnimationFrame(function () { toast.classList.add('toastVisible'); });
+
+          // 定时关闭并清理
+          var hide = function () {
+            toast.classList.remove('toastVisible');
+            // 等待过渡结束再移除
+            setTimeout(function () {
+              if (toast.parentNode) toast.parentNode.removeChild(toast);
+              if (container && container.childElementCount === 0 && container.parentNode) {
+                container.parentNode.removeChild(container);
+              }
+            }, 350);
+          };
+          setTimeout(hide, durationMs);
+        }
+
+        function getPluginId() {
+          return fetch(ApiClient.getUrl('danmaku/plugin_id'))
+            .then(function (res) {
+              if (res.ok) return res.json();
+              throw new Error(res.statusText);
+            })
+            .then(function (data) {
+              pluginId = data.pluginId;
+              return pluginId;
+            })
+            .catch(function (err) {
+              console.error('获取插件ID失败:', err);
+              // 降级到硬编码ID
+              pluginId = "0466728c-0379-4a71-b09d-ec1069b4b364";
+              return pluginId;
+            });
+        }
+
+        function loadCurrent() {
+          // 首先获取插件ID，然后加载其他内容
+          getPluginId().then(function (id) {
+            // Load custom JS content
+            fetch(ApiClient.getUrl('danmaku/custom_js'), { headers: { 'Accept': 'application/json' } })
+              .then(function (res) { if (res.ok) return res.json(); throw new Error(res.statusText); })
+              .then(function (list) {
+                var arr = Array.isArray(list) ? list : [];
+                jsEntries = arr.map(function (item, idx) {
+                  var t = (item && String(item.data_type).toLowerCase() === 'url') ? 'url' : 'js';
+                  var b64 = (item && item.data_base64) ? String(item.data_base64) : '';
+                  var n = '';
+                  if (item && item.name) {
+                    n = String(item.name);
+                  } else if (t === 'url') {
+                    try {
+                      var urltxt = b64Decode(b64) || '';
+                      n = urltxt ? ('网络文件:' + urltxt) : '';
+                    } catch (_) { n = ''; }
+                  }
+                  if (!n) n = '条目 ' + (idx + 1);
+                  return { name: n, base64: b64, type: t };
+                });
+                // 同步表单隐藏项并渲染列表；不自动填充编辑框
+                try { syncHiddenInputs(); } catch (_) { }
+                renderEntries();
+              })
+              .catch(function () { /* ignore */ });
+
+            // Load plugin settings using ApiClient
+            ApiClient.getPluginConfiguration(id).then(function (config) {
+              chkEnable.checked = !!config.EnableInjection;
+              enabledLibraryIds = config.EnabledLibraryIds || [];
+              txtDanmakuCacheMinutes.value = config.DanmakuCacheMinutes || 0;
+
+              // 加载代理/服务器地址
+              if (txtProxyBaseUrl) txtProxyBaseUrl.value = (config.DandanplayProxyBaseUrl || '');
+              if (txtServerBaseUrl) txtServerBaseUrl.value = (config.DandanplayServerBaseUrl || '');
+
+              // 加载开发者凭证
+              if (txtAppId) txtAppId.value = (config.DandanplayAppId || '');
+              if (txtAppSecret) txtAppSecret.value = (config.DandanplayAppSecret || '');
+
+              // Load libraries from server
+              ApiClient.getVirtualFolders().then(function (folders) {
+                currentLibraries = folders.map(function (f) {
+                  return {
+                    Id: f.ItemId,
+                    Name: f.Name
+                  };
+                });
+                renderLibraries();
+              });
+            });
+
+            // Load cache stats
+            fetch(ApiClient.getUrl('danmaku/db_info'))
+              .then(function (res) { if (res.ok) return res.json(); throw new Error(res.statusText); })
+              .then(function (data) {
+                if (data && data.CacheStats) {
+                  displayCacheStats(data.CacheStats);
+                }
+              })
+              .catch(function (err) {
+                console.error('加载缓存统计信息失败:', err);
+              });
+          });
+        }
+
+        function displayCacheStats(stats) {
+          // 计算总请求数
+          var hitCount = stats.HitCount || 0;
+          var missCount = stats.MissCount || 0;
+          var totalRequests = hitCount + missCount;
+
+          // 显示总请求次数
+          document.getElementById('totalRequests').textContent = totalRequests;
+
+          // 显示缓存命中次数和命中率
+          document.getElementById('cacheHitCount').textContent = hitCount;
+          var hitRate = totalRequests > 0 ? ((hitCount / totalRequests) * 100).toFixed(1) + '%' : '0%';
+          document.getElementById('cacheHitRate').textContent = hitRate;
+
+          // 显示缓存数
+          var cacheCount = stats.CacheCount || 0;
+          document.getElementById('cacheCount').textContent = cacheCount;
+
+          // 格式化并显示数据库大小
+          var size = stats.DatabaseSize || 0.0;
+          var sizeDisplay = '-';
+          if (size < 1024) {
+            sizeDisplay = size.toFixed(2) + ' B';
+          } else if (size < 1024 * 1024) {
+            var kbValue = size / 1024;
+            sizeDisplay = kbValue.toFixed(2) + ' KB';
+          } else if (size < 1024 * 1024 * 1024) {
+            var mbValue = size / (1024 * 1024);
+            sizeDisplay = mbValue.toFixed(2) + ' MB';
+          } else {
+            var gbValue = size / (1024 * 1024 * 1024);
+            sizeDisplay = gbValue.toFixed(2) + ' GB';
+          }
+          document.getElementById('cacheDatabaseSize').textContent = sizeDisplay;
+        }
+
+        function refreshCacheStats() {
+          fetch(ApiClient.getUrl('danmaku/db_info'))
+            .then(function (res) { if (res.ok) return res.json(); throw new Error(res.statusText); })
+            .then(function (data) {
+              if (data && data.CacheStats) {
+                displayCacheStats(data.CacheStats);
+              }
+            })
+            .catch(function (err) {
+              console.error('刷新缓存统计信息失败:', err);
+            });
+        }
+
+
+        function resetCacheDatabase() {
+          // 显示确认对话框
+          if (!confirm('确定要重置缓存数据库吗？这将删除所有缓存的弹幕数据和统计信息，此操作无法撤销。')) {
+            return;
+          }
+
+          // 使用 makeApiCall 函数来确保正确的认证和权限处理
+          makeApiCall(ApiClient.getUrl('danmaku/reset_cachedb'), '', 'text/plain; charset=utf-8')
+            .then(function (response) {
+              // 处理不同类型的响应
+              if (response && typeof response.then === 'function') {
+                // 如果是 Promise (fetch 响应)
+                return response.then ? response.text() : response;
+              } else {
+                // 如果是直接响应 (ApiClient.ajax)
+                return response;
+              }
+            })
+            .then(function (data) {
+              showToast('缓存数据库已重置', 2000);
+              // 重新加载统计信息
+              setTimeout(function () {
+                refreshCacheStats();
+              }, 500);
+            })
+            .catch(function (err) {
+              console.error('重置数据库失败:', err);
+              var errorMessage = '重置数据库失败';
+
+              // 处理不同类型的错误
+              if (err.status === 403 || err.status === 401) {
+                errorMessage = '权限不足：需要管理员权限';
+              } else if (err.statusText) {
+                errorMessage += ': ' + err.statusText;
+              } else if (err.message) {
+                errorMessage += ': ' + err.message;
+              } else if (typeof err === 'string') {
+                errorMessage += ': ' + err;
+              }
+
+              showToast(errorMessage, 4000);
+            });
+        }
+
+        function loadLibraries() {
+          // This function is now handled by loadCurrent() - can be removed
+        }
+
+        function renderLibraries() {
+          librariesContainer.innerHTML = '';
+          currentLibraries.forEach(function (library) {
+            var isEnabled = enabledLibraryIds.includes(library.Id);
+            var div = document.createElement('div');
+            div.className = 'sectioncheckbox';
+            div.innerHTML =
+              '<label class="emby-checkbox-label">' +
+              '<input is="emby-checkbox" type="checkbox" class="chkFolder emby-checkbox" data-id="' + library.Id + '"' +
+              (isEnabled ? ' checked="checked"' : '') + ' data-embycheckbox="true">' +
+              '<span class="checkboxLabel">' + library.Name + ' </span>' +
+              '<span class="checkboxOutline">' +
+              '<span class="material-icons checkboxIcon checkboxIcon-checked check" aria-hidden="true"></span>' +
+              '<span class="material-icons checkboxIcon checkboxIcon-unchecked " aria-hidden="true"></span>' +
+              '</span>' +
+              '</label>';
+            librariesContainer.appendChild(div);
+          });
+        }
+
+        function getSelectedLibraryIds() {
+          return Array.from(librariesContainer.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(cb => cb.getAttribute('data-id'));
+        }
+
+        function makeApiCall(url, data, contentType) {
+          contentType = contentType || 'text/plain; charset=utf-8';
+
+          if (ApiClient && typeof ApiClient.ajax === 'function') {
+            var options = {
+              type: 'POST',
+              url: url,
+              dataType: 'text'
+            };
+            if (data !== undefined) {
+              options.data = (contentType.includes('json')) ? JSON.stringify(data) : data;
+              options.contentType = contentType;
+            }
+            return ApiClient.ajax(options);
+          } else {
+            var token = (ApiClient && (ApiClient._accessToken || ApiClient.accessToken)) || '';
+            var options = {
+              method: 'POST',
+              headers: { 'X-Emby-Token': token }
+            };
+            if (data !== undefined) {
+              options.headers['Content-Type'] = contentType;
+              options.body = (contentType.includes('json')) ? JSON.stringify(data) : data;
+            }
+            return fetch(url, options);
+          }
+        }
+
+        // 查看合成后的完整文件
+        function viewCombined() {
+          var url = ApiClient.getUrl('danmaku/custom_js_combined');
+          // 优先使用原生 fetch，带上 token
+          var token = (ApiClient && (ApiClient._accessToken || ApiClient.accessToken)) || '';
+          fetch(url, { headers: token ? { 'X-Emby-Token': token } : {} })
+            .then(function (res) { if (res.ok) return res.text(); throw new Error(res.statusText); })
+            .then(function (text) {
+              var w = window.open('', '_blank');
+              if (!w) { showToast('弹出窗口被拦截，请允许弹窗', 3000); return; }
+              var safe = text || '';
+              w.document.open();
+              w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>danmaku_custom.js</title>' +
+                '<style>body{margin:0;background:#0b0b0b;color:#e0e0e0;font-family:monospace;}pre{margin:0;padding:16px;white-space:pre-wrap;word-break:break-word;}</style>' +
+                '</head><body><pre></pre></body></html>');
+              w.document.close();
+              var pre = w.document.querySelector('pre');
+              if (pre) pre.textContent = safe;
+            })
+            .catch(function (err) { showToast('加载失败: ' + (err && (err.statusText || err.message) || err), 3000); });
+        }
+
+        // 从当前页面状态构建提交给后端的条目 JSON 数组
+        function buildJsEntriesPayload() {
+          // 确保隐藏输入与内存数据一致
+          try { syncHiddenInputs(); } catch (_) { }
+
+          var list = [];
+          if (Array.isArray(jsEntries) && jsEntries.length) {
+            for (var i = 0; i < jsEntries.length; i++) {
+              var ent = jsEntries[i] || {};
+              list.push({
+                index: i + 1,
+                data_type: ent.type || 'js',
+                data_base64: ent.base64 || '',
+                name: ent.name || ''
+              });
+            }
+            return list;
+          }
+
+          // 回退：从隐藏输入读取（名称形如 id-jsdata-<index>）
+          var inputs = Array.from(form.querySelectorAll('input[name^="id-jsdata-"]'));
+          // 根据 name 中的 index 排序，确保顺序稳定
+          inputs.sort(function (a, b) {
+            var na = parseInt((a.getAttribute('name') || '').replace(/[^0-9]/g, ''), 10) || 0;
+            var nb = parseInt((b.getAttribute('name') || '').replace(/[^0-9]/g, ''), 10) || 0;
+            return na - nb;
+          });
+          inputs.forEach(function (inp, idx) {
+            var t = inp.getAttribute('data-type') || 'js';
+            var n = inp.getAttribute('data-name') || '';
+            list.push({
+              index: idx + 1,
+              data_type: t,
+              data_base64: inp.value || '',
+              name: n
+            });
+          });
+          return list;
+        }
+
+        function saveSettings() {
+          var cacheValue = parseInt(txtDanmakuCacheMinutes.value) || 0;
+          // 确保值在有效范围内
+          if (cacheValue < -1) cacheValue = -1;
+          if (cacheValue > 8760) cacheValue = 8760; // 最多365天 = 8760小时
+
+          return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+            var originalEnable = config.EnableInjection;
+            config.EnableInjection = chkEnable.checked;
+            config.EnabledLibraryIds = getSelectedLibraryIds();
+            config.DanmakuCacheMinutes = cacheValue;
+
+            // 保存代理/服务器地址
+            config.DandanplayProxyBaseUrl = (txtProxyBaseUrl && txtProxyBaseUrl.value) ? txtProxyBaseUrl.value.trim() : '';
+            config.DandanplayServerBaseUrl = (txtServerBaseUrl && txtServerBaseUrl.value) ? txtServerBaseUrl.value.trim() : '';
+
+            // 保存dandanplay凭证
+            config.DandanplayAppId = (txtAppId && txtAppId.value) ? txtAppId.value.trim() : '';
+            config.DandanplayAppSecret = (txtAppSecret && txtAppSecret.value) ? txtAppSecret.value.trim() : '';
+
+            return ApiClient.updatePluginConfiguration(pluginId, config).then(function () {
+              // 如果启用状态改变了，需要通知服务器更新 index.html
+              if (originalEnable !== config.EnableInjection) {
+                return makeApiCall(ApiClient.getUrl('danmaku/update_index_html'), '', 'text/plain; charset=utf-8');
+              }
+            });
+          });
+        }
+        function save(e) {
+          if (e) e.preventDefault();
+          var payload = buildJsEntriesPayload();
+          Dashboard.showLoadingMsg();
+
+          Promise.all([
+            makeApiCall(ApiClient.getUrl('danmaku/custom_js'), payload, 'application/json; charset=utf-8'),
+            saveSettings()
+          ]).then(function () {
+            Dashboard.hideLoadingMsg();
+            showToast('保存成功', 2000);
+          }).catch(function (err) {
+            Dashboard.hideLoadingMsg();
+            var msg = (err && err.statusText) || (err && err.message) || err || 'Unknown error';
+            showToast('保存失败: ' + msg, 4000);
+          });
+          return false;
+        }
+        function setupFileButton() {
+          var btnAddJs = document.getElementById('btnAddJs');
+          var btnSelectFile = document.getElementById('btnSelectFile');
+          var fileInput = document.getElementById('fileInput');
+
+          btnAddJs.addEventListener('click', function () {
+            // 将文本框中的文本 base64 化并保存为一项
+            addCurrentTextAsEntry();
+          });
+
+          // "选择文件"按钮 - 替换现有内容
+          btnSelectFile.addEventListener('click', function () {
+            fileInput.setAttribute('data-mode', 'replace');
+            fileInput.click();
+          });
+
+          // 处理文件选择
+          fileInput.addEventListener('change', function (e) {
+            var files = e.target.files;
+            var mode = fileInput.getAttribute('data-mode') || 'add';
+
+            if (files.length > 0) {
+              var allContent = '';
+              var fileCount = 0;
+              var totalFiles = files.length;
+
+              Array.from(files).forEach(function (file) {
+                // 检查文件扩展名
+                if (file.name.toLowerCase().endsWith('.js')) {
+                  lastFileName = file.name; // 记录本次输入的文件名
+                  var reader = new FileReader();
+                  reader.onload = function (e) {
+                    var content = e.target.result;
+
+                    if (mode === 'replace') {
+                      // 替换模式：收集所有文件内容，最后一次性替换
+                      if (allContent && !allContent.endsWith('\n')) {
+                        allContent += '\n';
+                      }
+                      allContent += '\n// === 来自文件: ' + file.name + ' ===\n';
+                      allContent += content;
+
+                      fileCount++;
+                      if (fileCount === totalFiles) {
+                        customJsTextarea.value = allContent;
+                        showToast('已替换内容，加载了 ' + fileCount + ' 个文件', 3000);
+                      }
+                    } else {
+                      // 添加模式：添加到现有内容尾部
+                      addFileContent(file.name, content);
+                    }
+                  };
+                  reader.readAsText(file);
+                } else {
+                  showToast('跳过非 .js 文件: ' + file.name, 3000);
+                }
+              });
+            }
+            // 清空文件输入，允许重复选择同一文件
+            fileInput.value = '';
+          });
+        }
+
+        function addFileContent(fileName, content) {
+          // 添加到现有文本的尾部
+          var currentValue = customJsTextarea.value;
+          var newValue = currentValue;
+
+          // 如果当前有内容且不以换行符结尾，添加换行符
+          if (currentValue && !currentValue.endsWith('\n')) {
+            newValue += '\n';
+          }
+
+          // 添加注释标记文件来源
+          newValue += '\n// === 来自文件: ' + fileName + ' ===\n';
+          newValue += content;
+
+          customJsTextarea.value = newValue;
+          showToast('已添加文件内容: ' + fileName, 3000);
+        }
+
+        function setupDragAndDrop() {
+          // 防止默认的拖拽行为
+          ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            customJsTextarea.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+          });
+
+          // 高亮显示拖拽区域
+          ['dragenter', 'dragover'].forEach(eventName => {
+            customJsTextarea.addEventListener(eventName, highlight, false);
+          });
+
+          ['dragleave', 'drop'].forEach(eventName => {
+            customJsTextarea.addEventListener(eventName, unhighlight, false);
+          });
+
+          // 处理文件拖拽
+          customJsTextarea.addEventListener('drop', handleDrop, false);
+
+          function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+
+          function highlight(e) {
+            customJsTextarea.style.border = '2px dashed #52b54b';
+            customJsTextarea.style.backgroundColor = 'rgba(82, 181, 75, 0.1)';
+          }
+
+          function unhighlight(e) {
+            customJsTextarea.style.border = '';
+            customJsTextarea.style.backgroundColor = '';
+          }
+
+          function handleDrop(e) {
+            var dt = e.dataTransfer;
+            var files = dt.files;
+
+            if (files.length > 0) {
+              Array.from(files).forEach(function (file) {
+                // 检查文件扩展名
+                if (file.name.toLowerCase().endsWith('.js')) {
+                  lastFileName = file.name; // 记录本次拖拽的文件名
+                  var reader = new FileReader();
+                  reader.onload = function (e) {
+                    addFileContent(file.name, e.target.result);
+                  };
+                  reader.readAsText(file);
+                } else {
+                  showToast('只支持 .js 文件格式', 3000);
+                }
+              });
+            }
+          }
+        }
+
+        document.querySelector('#DanmakuExtensionConfigPage').addEventListener('pageshow', function () {
+          customJsTextarea = document.getElementById('txtCustomJs');
+          chkEnable = document.getElementById('chkEnableInjection');
+          librariesContainer = document.getElementById('librariesContainer');
+          txtDanmakuCacheMinutes = document.getElementById('txtDanmakuCacheMinutes');
+          btnResetCacheDb = document.getElementById('btnResetCacheDb');
+          btnTest = document.getElementById('btnTest');
+          txtProxyBaseUrl = document.getElementById('txtProxyBaseUrl');
+          txtServerBaseUrl = document.getElementById('txtServerBaseUrl');
+          btnToggleDev = document.getElementById('btnToggleDev');
+          developerSection = document.getElementById('developerSection');
+          txtAppId = document.getElementById('txtAppId');
+          txtAppSecret = document.getElementById('txtAppSecret');
+          var btnViewCombined = document.getElementById('btnViewCombined');
+          form = document.getElementById('danmakuSettingsForm');
+
+          // 设置拖拽功能
+          setupDragAndDrop();
+
+          // 设置文件选择按钮
+          setupFileButton();
+
+          // 初始化条目展示
+          syncHiddenInputs();
+          renderEntries();
+
+          loadCurrent();
+          form.addEventListener('submit', save);
+          if (btnViewCombined) {
+            btnViewCombined.addEventListener('click', viewCombined);
+          }
+
+          // 开发者选项显隐切换
+          if (btnToggleDev && developerSection) {
+            btnToggleDev.addEventListener('click', function () {
+              var visible = developerSection.style.display !== 'none';
+              developerSection.style.display = visible ? 'none' : 'block';
+            });
+          }
+
+          // 添加重置数据库按钮事件监听器
+          if (btnResetCacheDb) {
+            btnResetCacheDb.addEventListener('click', resetCacheDatabase);
+          }
+          function authTest() {
+            // 使用 POST，并以表单方式提交；danmaku_id 放在查询参数，其他配置放表单
+            const url = ApiClient.getUrl('danmaku/comment', {
+              danmaku_id: '190010004'
+            });
+
+            const formBody = new URLSearchParams({
+              chConvert: '1',
+              // black_source_list 需要是 JSON 字符串
+              black_source_list: JSON.stringify(['dandanplay']),
+              black_list: JSON.stringify([{ "isRegex": false, "pattern": "签" }])
+            }).toString();
+
+            ApiClient.ajax({
+              type: 'POST',
+              url: url,
+              contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+              data: formBody,
+              dataType: 'json'
+            }).then(function (response) {
+              var message = '测试请求成功';
+              showToast(message, 3000);
+              console.log('danmaku/comment response:', response);
+            }).catch(function (err) {
+              var msg = (err && (err.statusText || err.message)) || err || '请求失败';
+              showToast('测试请求失败: ' + msg, 4000);
+              console.error(err);
+            });
+          }
+
+          if (btnTest) {
+            btnTest.addEventListener('click', authTest);
+          }
+
+
+        });
+      })();
+    </script>
+  </div>
+</body>
+
+</html>
