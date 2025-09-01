@@ -1,4 +1,4 @@
-
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 
@@ -22,23 +22,17 @@ public partial class DanmakuService
         {
             if (itemId == null || itemId == Guid.Empty)
             {
-                return new DanmakuResult
-                {
-                    Success = false,
-                    ErrorMessage = "item_id and danmaku_id is not provided",
-                    StatusCode = 400
-                };
+                // 使用空数据走完整处理流程并返回内容
+                _logger?.LogError("GetDanmakuContent: missing itemId and danmakuId, returning empty content");
+                return BuildEmptyContentResult(config, matchedEpisodeTitle);
             }
 
             var item = _libraryManager.GetItemById(itemId.Value);
             if (item == null)
             {
-                return new DanmakuResult
-                {
-                    Success = false,
-                    ErrorMessage = $"Item {itemId} not found",
-                    StatusCode = 404
-                };
+                // 使用空数据走完整处理流程并返回内容
+                _logger?.LogError("GetDanmakuContent: item {ItemId} not found, returning empty content", itemId);
+                return BuildEmptyContentResult(config, matchedEpisodeTitle);
             }
 
             // 检查该itemId的ProviderIds["danmaku"]是否为空
@@ -149,19 +143,54 @@ public partial class DanmakuService
                 }
                 catch { /* 忽略 DB/网络异常，继续自动匹配 */ }
 
-                // 若仍未取得 danmakuId，再尝试自动网络匹配
+
+
+
+                // 若仍未取得 danmakuId，再尝试自动网络匹配（需检查该库是否启用自动匹配）
                 if (string.IsNullOrWhiteSpace(danmakuId))
                 {
+                    bool autoMatchEnabledForLibrary = false;
+                    try
+                    {
+                        var enabledIds = Jellyfin.Plugin.DanmakuExtension.Plugin.Instance?.Configuration?.EnabledLibraryIds;
+                        if (enabledIds != null && enabledIds.Count > 0)
+                        {
+                            var enabledGuids = new HashSet<Guid>(
+                                enabledIds.Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+                                          .Where(g => g != Guid.Empty));
+
+                            if (enabledGuids.Count > 0)
+                            {
+                                // 复用已获取的 item，并使用 _libraryManager.GetCollectionFolders 与其他位置保持一致
+                                var folders = _libraryManager.GetCollectionFolders(item);
+                                foreach (var folder in folders)
+                                {
+                                    if (enabledGuids.Contains(folder.Id))
+                                    {
+                                        autoMatchEnabledForLibrary = true;
+                                        break;
+                                    }
+                                }
+                                try { _logger?.LogDebug("AutoMatch check: item {ItemId} folders=[{Folders}] enabled=[{Enabled}] result={Result}", itemId, string.Join(",", folders.Select(f => f.Id)), string.Join(",", enabledGuids), autoMatchEnabledForLibrary); } catch { }
+                            }
+                        }
+                    }
+                    catch { /* 忽略异常，视为未启用自动匹配 */ }
+
+                    if (!autoMatchEnabledForLibrary)
+                    {
+                        // 未启用自动匹配：使用空数据走流程
+                        _logger?.LogError("GetDanmakuContent: auto-match disabled for library, returning empty content (itemId={ItemId})", itemId);
+                        return BuildEmptyContentResult(config, matchedEpisodeTitle);
+                    }
+
                     var match = await TryAutoMatchDanmakuIdAsync(itemId.Value);
                     var autoMatchedId = match != null && match.EpisodeId > 0 ? match.EpisodeId.ToString() : null;
                     if (string.IsNullOrWhiteSpace(autoMatchedId))
                     {
-                        return new DanmakuResult
-                        {
-                            Success = false,
-                            ErrorMessage = "danmaku_id not found for this item and auto-match failed",
-                            StatusCode = 400
-                        };
+                        // 自动匹配失败：使用空数据走流程
+                        _logger?.LogError("GetDanmakuContent: auto-match failed for item {ItemId}, returning empty content", itemId);
+                        return BuildEmptyContentResult(config, matchedEpisodeTitle);
                     }
 
                     danmakuId = autoMatchedId;
@@ -204,21 +233,15 @@ public partial class DanmakuService
         }
         catch (HttpRequestException ex)
         {
-            return new DanmakuResult
-            {
-                Success = false,
-                ErrorMessage = ex.Message,
-                StatusCode = 500
-            };
+            // 拉取弹幕失败：使用空数据走流程
+            _logger?.LogError(ex, "GetDanmakuContent: fetch comments failed for danmakuId={DanmakuId}, returning empty content", danmakuId);
+            return BuildEmptyContentResult(config, matchedEpisodeTitle);
         }
         catch (Exception ex)
         {
-            return new DanmakuResult
-            {
-                Success = false,
-                ErrorMessage = $"Error fetching danmaku comments: {ex.Message}",
-                StatusCode = 500
-            };
+            // 其它异常：使用空数据走流程
+            _logger?.LogError(ex, "GetDanmakuContent: unexpected error, returning empty content (danmakuId={DanmakuId})", danmakuId);
+            return BuildEmptyContentResult(config, matchedEpisodeTitle);
         }
 
 
@@ -284,9 +307,21 @@ public partial class DanmakuService
             catch { /* 容错：反查失败不影响主流程 */ }
         }
 
-        // 应用 Pakku 配置处理弹幕（直接传入 DanmakuConfig，Pakku 内部解析 listJson）
-        content = ProcessDanmakuWithPakku(content, config, matchedEpisodeTitle);
+        // 解析 listJson 并处理弹幕
+        List<Pakku.DanmuObject> all = Pakku.ParseStandardJson(content);
+        content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle);
 
+        return new DanmakuResult
+        {
+            Success = true,
+            Content = content
+        };
+    }
+
+    private DanmakuResult BuildEmptyContentResult(DanmakuConfig config, string? episodeTitle)
+    {
+        var empty = new List<Pakku.DanmuObject>();
+        var content = ProcessDanmakuWithPakku(empty, config, episodeTitle);
         return new DanmakuResult
         {
             Success = true,

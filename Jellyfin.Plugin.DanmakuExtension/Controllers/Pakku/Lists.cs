@@ -29,7 +29,7 @@ public partial class Pakku
             ForceList = ParseForcelistFromJson(c.ForcelistJson),
             WhiteList = ParseWhitelistFromJson(c.WhitelistJson),
             BlackList = ParseBlacklistFromJson(c.BlacklistJson),
-            BlackSourceList = ParseBlackSourceListFromJson(c.BlackSourceListJson),
+            BlackSourceList = ParseBlackSourceListFromJson(c.BlackSourceListJson)
         };
     }
     /// <summary>

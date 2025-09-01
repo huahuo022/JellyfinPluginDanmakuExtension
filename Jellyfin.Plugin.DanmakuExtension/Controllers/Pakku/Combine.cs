@@ -140,7 +140,6 @@ public partial class Pakku
             var o = objs[idx];
 
             // 过滤类型（字幕池/特效/代码/BAS 等）——本数据无 pool/mode 7/8/9 额外语义，可按需要扩展
-            if (o.pool == 1) { if (stats != null) stats.ignored_type++; var cacheIgn = BuildCacheline(o.content, o.mode, idx, cfg); rs.Add(MakeIgnCluster(idx, o, cacheIgn, ret, "已忽略字幕弹幕")); continue; }
             if (o.mode == 7) { if (stats != null) stats.ignored_type++; var cacheIgn = BuildCacheline(o.content, o.mode, idx, cfg); rs.Add(MakeIgnCluster(idx, o, cacheIgn, ret, "已忽略特殊弹幕")); continue; }
             if (o.mode == 8) { if (stats != null) stats.ignored_type++; var cacheIgn = BuildCacheline(o.content, o.mode, idx, cfg); rs.Add(MakeIgnCluster(idx, o, cacheIgn, ret, "代码弹幕")); continue; }
             if (o.mode == 9) { if (stats != null) stats.ignored_type++; var cacheIgn = BuildCacheline(o.content, o.mode, idx, cfg); rs.Add(MakeIgnCluster(idx, o, cacheIgn, ret, "BAS弹幕")); continue; }

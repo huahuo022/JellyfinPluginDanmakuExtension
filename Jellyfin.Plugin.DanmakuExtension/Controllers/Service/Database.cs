@@ -392,5 +392,22 @@ public partial class DanmakuService
 
         return deletedRows;
     }
+
+    /// <summary>
+    /// 根据 preferred_id 删除 match_data 表中的记录。
+    /// 返回删除的行数。
+    /// </summary>
+    public async Task<int> DeleteMatchDataByPreferredIdAsync(Guid preferredId)
+    {
+        await InitializeDatabaseAsync();
+        using var connection = await OpenConnectionAsync();
+
+        var sql = "DELETE FROM match_data WHERE preferred_id = @preferred_id";
+        using var cmd = new SqliteCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@preferred_id", preferredId.ToString());
+        var rows = await cmd.ExecuteNonQueryAsync();
+        _logger.LogInformation("Deleted {Rows} rows from match_data for preferred_id={PreferredId}", rows, preferredId);
+        return rows;
+    }
     #endregion
 }

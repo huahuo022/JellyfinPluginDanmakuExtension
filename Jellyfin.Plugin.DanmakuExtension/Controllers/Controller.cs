@@ -185,6 +185,31 @@ public class DanmakuController : ControllerBase
     }
     #endregion
 
+    #region GET del_match
+    // 删除指定 item_id 对应 preferredId 的匹配记录
+    [HttpGet("del_match")]
+    [Authorize(Policy = "RequiresElevation")]
+    public async Task<IActionResult> DeleteMatch([FromQuery(Name = "item_id")] Guid itemId)
+    {
+        try
+        {
+            if (itemId == Guid.Empty)
+            {
+                return BadRequest("item_id is required");
+            }
+
+            var preferredId = _danmakuService.GetPreferredContainerId(itemId);
+            var rows = await _danmakuService.DeleteMatchDataByPreferredIdAsync(preferredId);
+            return Ok(new { deleted = rows, preferred_id = preferredId });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting match_data for item {ItemId}", itemId);
+            return StatusCode(500, $"Error deleting match_data: {ex.Message}");
+        }
+    }
+    #endregion
+
     #region GET font endpoints
     // 列出服务器上可用（系统安装）的字体文件名清单
     [HttpGet("font/get_all")]

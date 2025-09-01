@@ -229,6 +229,65 @@ export class SearchDanmakuPage {
         // 先只放顶部信息框
         list.appendChild(header);
 
+        // 信息栏与搜索栏之间：删除已匹配结果（整栏可点击，红色）
+        const deleteBar = document.createElement('div');
+        deleteBar.textContent = '删除已匹配结果';
+        deleteBar.style.marginTop = '10px';
+        deleteBar.style.height = '36px';
+        deleteBar.style.lineHeight = '36px';
+        deleteBar.style.textAlign = 'center';
+        deleteBar.style.color = '#fff';
+        deleteBar.style.fontSize = '13px';
+        deleteBar.style.fontWeight = '600';
+        deleteBar.style.background = 'rgba(220, 53, 69, 0.95)'; // 红色
+        deleteBar.style.border = '1px solid rgba(255,255,255,.18)';
+        deleteBar.style.borderRadius = '8px';
+        deleteBar.style.cursor = 'pointer';
+        deleteBar.style.userSelect = 'none';
+        deleteBar.style.transition = 'filter .12s ease, opacity .12s ease';
+        deleteBar.addEventListener('mouseenter', () => { try { deleteBar.style.filter = 'brightness(1.05)'; } catch (_) {} });
+        deleteBar.addEventListener('mouseleave', () => { try { deleteBar.style.filter = 'none'; } catch (_) {} });
+
+        const onDeleteClick = async () => {
+            try {
+                // 二次确认
+                // eslint-disable-next-line no-alert
+                const ok = window.confirm?.('确认删除已匹配结果？此操作将清空信息栏数据。');
+                if (!ok) return;
+                if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) {
+                    this.logger?.warn?.('[Search] 无法删除：缺少 ApiClient');
+                    return;
+                }
+                const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                const item_id = g.getMediaId?.();
+                if (!item_id) {
+                    this.logger?.warn?.('[Search] 无法删除：缺少 item_id');
+                    return;
+                }
+                const prevText = deleteBar.textContent;
+                deleteBar.textContent = '处理中…';
+                deleteBar.style.opacity = '0.85';
+                deleteBar.style.pointerEvents = 'none';
+                const url = ApiClient.getUrl(`danmaku/del_match?item_id=${encodeURIComponent(String(item_id))}`);
+                // 无需解析返回体
+                await ApiClient.ajax({ type: 'GET', url });
+                // 成功后清空信息栏数据
+                this._clearHeaderInfo();
+                this.logger?.info?.('[Search] 已删除匹配结果', { item_id });
+            } catch (e) {
+                this.logger?.warn?.('[Search] 删除匹配结果失败', e);
+            } finally {
+                try {
+                    deleteBar.textContent = '删除已匹配结果';
+                    deleteBar.style.opacity = '';
+                    deleteBar.style.pointerEvents = '';
+                } catch (_) { }
+            }
+        };
+        deleteBar.addEventListener('click', onDeleteClick);
+        this._unbinds.push(() => { try { deleteBar.removeEventListener('click', onDeleteClick); } catch (_) { } });
+        list.appendChild(deleteBar);
+
         // 信息栏下方的搜索栏
         const searchWrap = document.createElement('div');
         searchWrap.style.position = 'relative';
@@ -1121,6 +1180,25 @@ export class SearchDanmakuPage {
         } catch (_) { }
         // 将数据放入全局以便其它模块复用
         try { const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {}; g.danmakuMatchData = this._matchData || null; } catch (_) { }
+    }
+
+    _clearHeaderInfo() {
+        try {
+            this._matchData = null;
+            if (this._titleValEl) this._titleValEl.textContent = '--';
+            if (this._episodeTitleEl) this._episodeTitleEl.textContent = '--';
+            if (this._idValEl) this._idValEl.textContent = '--';
+            if (this._offsetInput) this._offsetInput.value = '0';
+            if (this._epIdValEl) this._epIdValEl.textContent = '--';
+            if (this._imgEl) {
+                try { this._imgEl.removeAttribute('src'); } catch (_) { }
+            }
+            try {
+                const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                g.danmakuMatchData = null;
+                g.danmakuEpId = null;
+            } catch (_) { }
+        } catch (_) { }
     }
 
     async _fetchEpId() {

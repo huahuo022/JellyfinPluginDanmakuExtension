@@ -8,13 +8,13 @@ public partial class DanmakuService
     /// <summary>
     /// 使用 Pakku 算法处理弹幕（直接接收 DanmakuConfig）
     /// </summary>
-    public string ProcessDanmakuWithPakku(string inputJson, DanmakuConfig cfg, string? episodeTitle = null)
+    public string ProcessDanmakuWithPakku(List<Pakku.DanmuObject> all, DanmakuConfig cfg, string? episodeTitle = null)
     {
         try
         {
             // 调用 Pakku 处理方法并统计执行时间
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var (representatives, stats) = Pakku.ProcessFromTestJsonWithStats(inputJson, cfg);
+            var (representatives, stats) = Pakku.ProcessFromTestJsonWithStats(all, cfg);
             stopwatch.Stop();
             var pakku_ms = (int)stopwatch.ElapsedMilliseconds;
 

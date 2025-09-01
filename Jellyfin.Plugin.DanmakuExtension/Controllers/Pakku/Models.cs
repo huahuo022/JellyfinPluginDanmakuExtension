@@ -21,7 +21,7 @@ public partial class Pakku
         // 显示相关（post 阶段使用）
         public int fontsize { get; set; } = 0;
         public int weight { get; set; } = 0;
-        public int pool { get; set; } = 0; // 1表示字幕池
+        public string pool { get; set; } = string.Empty; // 表示字幕源
 
         // 合并次数标记（用于前端渲染），代表弹幕上为簇大小，普通弹幕默认 1
         public int mark_count { get; set; } = 1;

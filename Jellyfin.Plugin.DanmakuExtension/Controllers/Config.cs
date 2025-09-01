@@ -22,11 +22,11 @@ public class DanmakuConfig
 
     // 合并配置
     public bool EnableCombine { get; set; } = true;
-    public double ThresholdSeconds { get; set; } = 2.0;
-    public int MaxDistance { get; set; } = 2;
-    public int MaxCosine { get; set; } = 80;
+    public double ThresholdSeconds { get; set; } = 15.0;
+    public int MaxDistance { get; set; } = 3;
+    public int MaxCosine { get; set; } = 40;
     public bool UsePinyin { get; set; } = true;
-    public bool CrossMode { get; set; } = false;
+    public bool CrossMode { get; set; } = true;
     public bool TrimEnding { get; set; } = true;
     public bool TrimSpace { get; set; } = true;
     public bool TrimWidth { get; set; } = true;

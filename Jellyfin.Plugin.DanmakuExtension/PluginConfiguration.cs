@@ -21,7 +21,7 @@ public class PluginConfiguration : BasePluginConfiguration
 	public string ScriptRelativePath { get; set; } = "danmaku_custom.js";
 
 	/// <summary>
-	/// 启用弹幕的媒体库ID列表
+	/// 启用自动弹幕匹配的媒体库ID列表
 	/// </summary>
 	[XmlArray("EnabledLibraryIds")]
 	[XmlArrayItem("LibraryId")]

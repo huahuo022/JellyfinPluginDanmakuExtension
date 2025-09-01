@@ -354,4 +354,9 @@ FodyWeavers.xsd
 *.sln.iml
 
 
+# Local helper script (ignored)
+build_and_restart.py
+js_build_and_push.py
+
+
 

@@ -10,16 +10,15 @@ public partial class Pakku
     /// </summary>
     /// <param name="inputJson">原始 JSON 字符串（包含 comments 数组）</param>
     /// <param name="lists">已构建的名单列表（用于来源黑名单过滤）</param>
-    /// <returns>(allDanmus, sourceStats)</returns>
-    static (List<DanmuObject> all, Dictionary<string,int> sourceStats, int total) ParseStandardJson(string inputJson, ParsedLists lists)
+    /// <returns>allDanmus</returns>
+    internal static List<DanmuObject> ParseStandardJson(string inputJson)
     {
         using var doc = JsonDocument.Parse(inputJson);
         var root = doc.RootElement;
-        if (!root.TryGetProperty("comments", out var commentsEl))
-            throw new ArgumentException("JSON 缺少 comments 数组");
+        if (!root.TryGetProperty("comments", out var commentsEl) || commentsEl.ValueKind != JsonValueKind.Array)
+            return new List<DanmuObject>();
 
         var all = new List<DanmuObject>();
-        var sourceStats = new Dictionary<string, int>();
 
         foreach (var e in commentsEl.EnumerateArray())
         {
@@ -42,21 +41,12 @@ public partial class Pakku
                 {
                     var match = UID_SOURCE_RE.Match(dm.uid);
                     if (match.Success) source = match.Groups[1].Value;
-                }
-                // 统计来源
-                sourceStats[source] = sourceStats.GetValueOrDefault(source, 0) + 1;
-                // 来源黑名单过滤
-                if (lists.BlackSourceList != null && lists.BlackSourceList.Count > 0)
-                {
-                    if (lists.BlackSourceList.Any(x => string.Equals(x, source, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        continue; // 丢弃
-                    }
+                    dm.pool = source;
                 }
             }
             all.Add(dm);
         }
 
-    return (all, sourceStats, all.Count);
+    return all ;
     }
 }

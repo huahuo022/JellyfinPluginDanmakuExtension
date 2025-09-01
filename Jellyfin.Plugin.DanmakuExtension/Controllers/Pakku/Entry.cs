@@ -1,5 +1,6 @@
 
 using System.Text.Json;
+using System.Runtime.InteropServices;
 
 
 namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
@@ -10,7 +11,7 @@ public partial class Pakku
 
 
     #region 入口与调度 // Pakku.Entry.cs
-    internal static (List<DanmuObjectRepresentative> reps, Stats stats) ProcessFromTestJsonWithStats(string inputData, DanmakuConfig? cfg = null)
+    internal static (List<DanmuObjectRepresentative> reps, Stats stats) ProcessFromTestJsonWithStats(List<DanmuObject> all, DanmakuConfig? cfg = null)
     {
         cfg ??= new DanmakuConfig();
 
@@ -20,7 +21,41 @@ public partial class Pakku
 
         var lists = BuildParsedLists(cfg);
         // 解析输入（已抽象到独立方法，便于未来多格式扩展）
-        var (all, sourceStats, totalCount) = ParseStandardJson(inputData, lists);
+
+        // var all = ParseStandardJson(inputData);
+
+
+        var sourceStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        sourceStats.EnsureCapacity(all.Count);
+
+        // 若配置了来源黑名单，则在统计同时过滤 all
+        HashSet<string>? blackSourceSet = null;
+        List<DanmuObject>? filteredAll = null;
+        if (lists.BlackSourceList != null && lists.BlackSourceList.Count > 0)
+        {
+            blackSourceSet = new HashSet<string>(lists.BlackSourceList, StringComparer.OrdinalIgnoreCase);
+            filteredAll = new List<DanmuObject>(all.Count);
+        }
+
+        foreach (var dm in all)
+        {
+            var key = string.IsNullOrEmpty(dm.pool) ? "unknown" : dm.pool;
+            // 统计（基于未删减数据）
+            ref int count = ref CollectionsMarshal.GetValueRefOrAddDefault(sourceStats, key, out bool exists);
+            if (exists) count++;
+            else count = 1;
+
+            // 过滤（仅当配置了黑名单时执行）
+            if (filteredAll != null)
+            {
+                if (blackSourceSet == null || !blackSourceSet.Contains(key))
+                {
+                    filteredAll.Add(dm);
+                }
+            }
+        }
+
+        if (filteredAll != null) all = filteredAll;
 
         if (!cfg.EnableCombine)
         {
@@ -36,7 +71,7 @@ public partial class Pakku
                 mark_count = 0 // 不进行合并，标记数为 0
             }).ToList();
 
-            stats.original_total = totalCount;
+            stats.original_total = all.Count;
             stats.source_stats = sourceStats;
 
             // 生成热力图数据（根据配置: off | combined | original）
@@ -97,7 +132,7 @@ public partial class Pakku
 
         // 将弹幕来源统计与原始总条数添加到 stats 中
         stats.source_stats = sourceStats;
-        stats.original_total = totalCount;
+        stats.original_total = all.Count;
 
         // 生成热力图数据（根据配置: off | combined | original）
         if (!string.IsNullOrEmpty(cfg.EnableHeatmap) && cfg.EnableHeatmap != "off")
