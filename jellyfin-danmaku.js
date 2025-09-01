@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-08-31T20:53:42.125Z
+ * 构建时间: 2025-09-01T21:12:47.446Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -43,16 +43,16 @@
                 display_bottom_pct: { def: 100,        type: 'number'  },
                 // 合并选项
                 enable_combine:     { def: true,       type: 'boolean' },
-                threshold_seconds:  { def: 2,          type: 'number'  },
-                max_distance:       { def: 2,          type: 'number'  },
-                max_cosine:         { def: 80,         type: 'number'  },
+                threshold_seconds:  { def: 15,          type: 'number'  },
+                max_distance:       { def: 3,          type: 'number'  },
+                max_cosine:         { def: 40,         type: 'number'  },
                 use_pinyin:         { def: true,       type: 'boolean' },
-                cross_mode:         { def: false,      type: 'boolean' },
+                cross_mode:         { def: true,       type: 'boolean' },
                 trim_ending:        { def: true,       type: 'boolean' },
                 trim_space:         { def: true,       type: 'boolean' },
                 trim_width:         { def: true,       type: 'boolean' },
                 heatmap_style:      { def: "blue",     type: 'string'  },
-                mark_style:         { def: "",         type: 'string'  },
+                mark_style:         { def: "sub_low",  type: 'string'  },
                 mark_threshold:     { def: 1,          type: 'number'  },
                 mode_elevation:     { def: true,       type: 'boolean' },
                 enlarge:            { def: true,       type: 'boolean' },
@@ -3965,6 +3965,65 @@
             // 先只放顶部信息框
             list.appendChild(header);
 
+            // 信息栏与搜索栏之间：删除已匹配结果（整栏可点击，红色）
+            const deleteBar = document.createElement('div');
+            deleteBar.textContent = '删除已匹配结果';
+            deleteBar.style.marginTop = '10px';
+            deleteBar.style.height = '36px';
+            deleteBar.style.lineHeight = '36px';
+            deleteBar.style.textAlign = 'center';
+            deleteBar.style.color = '#fff';
+            deleteBar.style.fontSize = '13px';
+            deleteBar.style.fontWeight = '600';
+            deleteBar.style.background = 'rgba(220, 53, 69, 0.95)'; // 红色
+            deleteBar.style.border = '1px solid rgba(255,255,255,.18)';
+            deleteBar.style.borderRadius = '8px';
+            deleteBar.style.cursor = 'pointer';
+            deleteBar.style.userSelect = 'none';
+            deleteBar.style.transition = 'filter .12s ease, opacity .12s ease';
+            deleteBar.addEventListener('mouseenter', () => { try { deleteBar.style.filter = 'brightness(1.05)'; } catch (_) {} });
+            deleteBar.addEventListener('mouseleave', () => { try { deleteBar.style.filter = 'none'; } catch (_) {} });
+
+            const onDeleteClick = async () => {
+                try {
+                    // 二次确认
+                    // eslint-disable-next-line no-alert
+                    const ok = window.confirm?.('确认删除已匹配结果？此操作将清空信息栏数据。');
+                    if (!ok) return;
+                    if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) {
+                        this.logger?.warn?.('[Search] 无法删除：缺少 ApiClient');
+                        return;
+                    }
+                    const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                    const item_id = g.getMediaId?.();
+                    if (!item_id) {
+                        this.logger?.warn?.('[Search] 无法删除：缺少 item_id');
+                        return;
+                    }
+                    const prevText = deleteBar.textContent;
+                    deleteBar.textContent = '处理中…';
+                    deleteBar.style.opacity = '0.85';
+                    deleteBar.style.pointerEvents = 'none';
+                    const url = ApiClient.getUrl(`danmaku/del_match?item_id=${encodeURIComponent(String(item_id))}`);
+                    // 无需解析返回体
+                    await ApiClient.ajax({ type: 'GET', url });
+                    // 成功后清空信息栏数据
+                    this._clearHeaderInfo();
+                    this.logger?.info?.('[Search] 已删除匹配结果', { item_id });
+                } catch (e) {
+                    this.logger?.warn?.('[Search] 删除匹配结果失败', e);
+                } finally {
+                    try {
+                        deleteBar.textContent = '删除已匹配结果';
+                        deleteBar.style.opacity = '';
+                        deleteBar.style.pointerEvents = '';
+                    } catch (_) { }
+                }
+            };
+            deleteBar.addEventListener('click', onDeleteClick);
+            this._unbinds.push(() => { try { deleteBar.removeEventListener('click', onDeleteClick); } catch (_) { } });
+            list.appendChild(deleteBar);
+
             // 信息栏下方的搜索栏
             const searchWrap = document.createElement('div');
             searchWrap.style.position = 'relative';
@@ -4857,6 +4916,25 @@
             } catch (_) { }
             // 将数据放入全局以便其它模块复用
             try { const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {}; g.danmakuMatchData = this._matchData || null; } catch (_) { }
+        }
+
+        _clearHeaderInfo() {
+            try {
+                this._matchData = null;
+                if (this._titleValEl) this._titleValEl.textContent = '--';
+                if (this._episodeTitleEl) this._episodeTitleEl.textContent = '--';
+                if (this._idValEl) this._idValEl.textContent = '--';
+                if (this._offsetInput) this._offsetInput.value = '0';
+                if (this._epIdValEl) this._epIdValEl.textContent = '--';
+                if (this._imgEl) {
+                    try { this._imgEl.removeAttribute('src'); } catch (_) { }
+                }
+                try {
+                    const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                    g.danmakuMatchData = null;
+                    g.danmakuEpId = null;
+                } catch (_) { }
+            } catch (_) { }
         }
 
         async _fetchEpId() {
@@ -9281,7 +9359,7 @@
         };
 
         // 日志器（默认关闭调试，优先读取本地存储的开关）
-        let __initialDebug = true;
+        let __initialDebug = false;
         try {
             // 仅当运行在浏览器环境且可访问 localStorage 时读取
             const v = (typeof window !== 'undefined' && window.localStorage)
