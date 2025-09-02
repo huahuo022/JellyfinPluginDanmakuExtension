@@ -675,6 +675,7 @@ public class DanmakuController : ControllerBase
         {
             var authInfo = await _authorizationContext.GetAuthorizationInfo(Request);
             var userId = authInfo?.UserId;
+            var deviceId = authInfo?.DeviceId;
             // 检查用户是否已认证
             if (!userId.HasValue)
             {

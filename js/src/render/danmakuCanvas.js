@@ -109,7 +109,7 @@ function ensureRemoteFontLoaded(urlPath) {
     } catch (_) { /* ignore */ }
 
     // 优先从 Cache Storage 读取；否则网络获取，并将结果写入缓存
-    var p = (async function(){
+    var p = (async function () {
       try {
         var useCaches = (typeof caches !== 'undefined' && caches.open);
         var arrBuf = null;
@@ -123,7 +123,7 @@ function ensureRemoteFontLoaded(urlPath) {
               arrBuf = await hit.arrayBuffer();
               typeHint = hit.headers.get('content-type') || typeHint;
             }
-          } catch (_) {}
+          } catch (_) { }
         }
 
         if (!arrBuf) {
@@ -135,20 +135,20 @@ function ensureRemoteFontLoaded(urlPath) {
               var c2 = await caches.open('jfdanmaku-fonts-v1');
               await c2.put(new Request(absUrl, { credentials: 'same-origin', mode: 'cors' }), resp.clone());
             }
-          } catch (_) {}
+          } catch (_) { }
           typeHint = resp.headers.get('content-type') || typeHint;
           arrBuf = await resp.arrayBuffer();
         }
 
-  // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
-  var blob = new Blob([arrBuf], { type: typeHint });
-  var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
-  var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
-  var loaded = await ff.load();
-        try { document.fonts.add(loaded); } catch (_) {}
-  try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) {}
+        // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
+        var blob = new Blob([arrBuf], { type: typeHint });
+        var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
+        var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+        var loaded = await ff.load();
+        try { document.fonts.add(loaded); } catch (_) { }
+        try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) { }
         cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-        try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
+        try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) { }
         return family;
       } catch (err) {
         cache[urlPath] = { status: 'failed', error: String(err) };
@@ -163,7 +163,7 @@ function ensureRemoteFontLoaded(urlPath) {
 }
 
 // 将加载器暴露到全局，便于设置页等直接调用
-try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) {}
+try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
 
 /**
  * 若 style.font 中包含 /danmaku/font/ 路径，则在可用时替换为已加载的家族名；失败则替换为 sans-serif。
@@ -182,11 +182,9 @@ function maybeRewriteStyleFont(style) {
       style.font = style.font.replace(url, "'" + fam + "'");
       return;
     }
-    if (cache[url] && cache[url].status === 'failed') {
-      style.font = style.font.replace(url, 'sans-serif');
-      return;
-    }
-    // 触发加载，但本次仍使用原始值（浏览器会回退）
+    // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
+    style.font = style.font.replace(url, 'sans-serif');
+    // 异步触发加载；后续新建弹幕会拿到已加载的家族名
     ensureRemoteFontLoaded(url);
   } catch (_) { /* ignore */ }
 }
@@ -455,7 +453,7 @@ var caf = (function () {
  * @returns {number} 插入位置的索引
  */
 function binsearch(arr, prop, key) {
-  try { console.log(LOG_PREFIX, 'binsearch: start', { length: arr && arr.length, prop: prop, key: key }); } catch (e) {}
+  try { console.log(LOG_PREFIX, 'binsearch: start', { length: arr && arr.length, prop: prop, key: key }); } catch (e) { }
   // 返回插入位置 (0..arr.length)
   var left = 0;
   var right = arr.length; // 区间: [left, right)
@@ -469,7 +467,7 @@ function binsearch(arr, prop, key) {
     }
   }
   // left 即为插入点
-  try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) {}
+  try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) { }
   return left;
 }
 /**
@@ -842,11 +840,11 @@ function seek() {
               if (rc.mode === 'top' || rc.mode === 'bottom') rc.x = (this._.width - rc.width) >> 1;
               this._.engine.render(this._.stage, rc);
             }
-          } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) {} }
+          } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) { } }
         }
       }
     } catch (e) {
-      try { console.warn('[Danmaku] seek backfill error', e); } catch (_) {}
+      try { console.warn('[Danmaku] seek backfill error', e); } catch (_) { }
     }
   }
   return this;
@@ -963,9 +961,9 @@ function init$1(opt) {
     var g = __getGlobal();
     var ff = g?.danmakuSettings?.get?.('font_family');
     if (typeof ff === 'string' && ff.indexOf('/danmaku/font/') === 0) {
-      ensureRemoteFontLoaded(ff).then(function(fam){
+      ensureRemoteFontLoaded(ff).then(function (fam) {
         if (fam) {
-          try { (g.danmakuRenderer?.container || this.container).style.fontFamily = "'" + fam + "', sans-serif"; } catch (_) {}
+          try { (g.danmakuRenderer?.container || this.container).style.fontFamily = "'" + fam + "', sans-serif"; } catch (_) { }
         }
       }.bind(this));
     }
@@ -1009,12 +1007,12 @@ function destroy() {
 
   // 移除右键菜单监听
   if (this._.copyMenuHandlers) {
-    try { document.removeEventListener('contextmenu', this._.copyMenuHandlers.onContext, true); } catch (_) {}
-    try { document.removeEventListener('click', this._.copyMenuHandlers.onDocClick, true); } catch (_) {}
-    try { document.removeEventListener('scroll', this._.copyMenuHandlers.onScroll, true); } catch (_) {}
+    try { document.removeEventListener('contextmenu', this._.copyMenuHandlers.onContext, true); } catch (_) { }
+    try { document.removeEventListener('click', this._.copyMenuHandlers.onDocClick, true); } catch (_) { }
+    try { document.removeEventListener('scroll', this._.copyMenuHandlers.onScroll, true); } catch (_) { }
   }
   if (this._.copyMenu && this._.copyMenu.parentElement) {
-    try { this._.copyMenu.parentElement.removeChild(this._.copyMenu); } catch (_) {}
+    try { this._.copyMenu.parentElement.removeChild(this._.copyMenu); } catch (_) { }
   }
 
   // 清空所有属性
@@ -1201,7 +1199,7 @@ Danmaku.prototype.resize = function () {
 };
 
 // 对实例暴露字体加载器（语义代理）
-Danmaku.prototype.ensureRemoteFontLoaded = function(url){
+Danmaku.prototype.ensureRemoteFontLoaded = function (url) {
   return ensureRemoteFontLoaded(url);
 };
 
@@ -1257,7 +1255,7 @@ function setupCopyContextMenu() {
   preview.style.whiteSpace = 'pre-wrap';
   preview.style.borderBottom = '1px solid rgba(255,255,255,0.08)';
   preview.style.boxSizing = 'border-box';
-  preview.setAttribute('data-danmaku-preview','');
+  preview.setAttribute('data-danmaku-preview', '');
   menu.appendChild(preview);
 
   function addItem(label, onClick) {
@@ -1266,15 +1264,15 @@ function setupCopyContextMenu() {
     item.style.padding = '4px 12px';
     item.style.cursor = 'pointer';
     item.style.whiteSpace = 'nowrap';
-    item.addEventListener('mouseenter', function(){ item.style.background = 'rgba(255,255,255,0.08)'; });
-    item.addEventListener('mouseleave', function(){ item.style.background = 'transparent'; });
-    item.addEventListener('click', function(e){
+    item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,255,255,0.08)'; });
+    item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
+    item.addEventListener('click', function (e) {
       e.stopPropagation();
-      try { onClick(); } catch(_) {}
+      try { onClick(); } catch (_) { }
       hideMenu();
     });
     // 备用：提供 mousedown 触发兼容（不再打印日志）
-    item.addEventListener('mousedown', function(e){ if (e.button !== 0) return; });
+    item.addEventListener('mousedown', function (e) { if (e.button !== 0) return; });
     menu.appendChild(item);
   }
 
@@ -1285,15 +1283,15 @@ function setupCopyContextMenu() {
     currentCmt = null;
   }
 
-  addItem('复制', function(){
+  addItem('复制', function () {
     if (!currentCmt) return;
     var text = currentCmt.text || '';
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         var p = navigator.clipboard.writeText(text);
         if (p && typeof p.then === 'function') {
-          p.then(function(){
-          }).catch(function(err){
+          p.then(function () {
+          }).catch(function (err) {
             // 降级时输出一次警告
             console.warn('[Danmaku] copy async failed, fallback to execCommand', err);
             fallbackCopy(text);
@@ -1304,7 +1302,7 @@ function setupCopyContextMenu() {
       }
     } catch (err) {
       console.warn('[Danmaku] copy threw, fallback', err);
-      try { fallbackCopy(text); } catch(_) {}
+      try { fallbackCopy(text); } catch (_) { }
     }
   });
 
@@ -1329,15 +1327,15 @@ function setupCopyContextMenu() {
     var y = e.clientY - rect.top;
     if (x < 0 || y < 0 || x > rect.width || y > rect.height) return; // 不在画布区域
     // 进行命中检测
-  var cmt = hitDanmaku.call(that, x, y);
-  if (!cmt) return; // 没有弹幕，不拦截
-  if (menu.style.display === 'block') menu.style.display = 'none';
-  currentCmt = cmt;
-  preview.textContent = cmt.text || '';
-  e.preventDefault();
-  e.stopPropagation();
-  menu.style.display='block';
-  showAt(e.clientX, e.clientY);
+    var cmt = hitDanmaku.call(that, x, y);
+    if (!cmt) return; // 没有弹幕，不拦截
+    if (menu.style.display === 'block') menu.style.display = 'none';
+    currentCmt = cmt;
+    preview.textContent = cmt.text || '';
+    e.preventDefault();
+    e.stopPropagation();
+    menu.style.display = 'block';
+    showAt(e.clientX, e.clientY);
   }
 
   function onScroll() { hideMenu(); }
@@ -1352,17 +1350,17 @@ function setupCopyContextMenu() {
     try {
       var ta = document.createElement('textarea');
       ta.value = text;
-      ta.style.position='fixed';ta.style.top='-9999px';
+      ta.style.position = 'fixed'; ta.style.top = '-9999px';
       document.body.appendChild(ta); ta.select();
       var ok = false;
-      try { ok = document.execCommand('copy'); } catch(e){ console.warn('[Danmaku] execCommand copy error', e); }
+      try { ok = document.execCommand('copy'); } catch (e) { console.warn('[Danmaku] execCommand copy error', e); }
       document.body.removeChild(ta);
-    } catch(e) { console.warn('[Danmaku] fallback copy failed', e); }
+    } catch (e) { console.warn('[Danmaku] fallback copy failed', e); }
   }
 }
 
 // 暴露为内部方法（如果未来需要外部开关）
-Danmaku.prototype._setupCopyContextMenu = function(){ setupCopyContextMenu.call(this); };
+Danmaku.prototype._setupCopyContextMenu = function () { setupCopyContextMenu.call(this); };
 
 /**
  * 原地替换整批弹幕数据，预处理完成后一次性切换，尽量减少可见空窗。
@@ -1372,22 +1370,22 @@ Danmaku.prototype._setupCopyContextMenu = function(){ setupCopyContextMenu.call(
  * @param {boolean} [opt.resetCopyMenu=false] 是否重建右键菜单（一般不需要）
  * @returns {Danmaku} this
  */
-Danmaku.prototype.replaceComments = function(newComments, opt){
+Danmaku.prototype.replaceComments = function (newComments, opt) {
   opt = opt || {};
   if (!Array.isArray(newComments)) return this;
   // 拷贝 & 排序 & 标准化（不修改传入数组引用）
   var prepared = newComments.slice();
-  prepared.sort(function(a,b){ return (a.time||0) - (b.time||0); });
-  for (var i=0;i<prepared.length;i++) {
+  prepared.sort(function (a, b) { return (a.time || 0) - (b.time || 0); });
+  for (var i = 0; i < prepared.length; i++) {
     var c = prepared[i];
     c.mode = formatMode(c.mode);
     // 规范 text
-    c.text = (c.text==null? '' : String(c.text));
+    c.text = (c.text == null ? '' : String(c.text));
   }
 
   // 计算当前参考时间
   var media = this.media;
-  var ct = media ? media.currentTime : (now()/1000);
+  var ct = media ? media.currentTime : (now() / 1000);
   var duration = this._.duration || 4;
   var windowStart = ct - duration;
 
@@ -1400,8 +1398,8 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
   var startIndex = binsearch(prepared, 'time', windowStart) - 1; // bins 返回插入点，前一条可能仍在窗口
   if (startIndex < -1) startIndex = -1;
   var idx = startIndex + 1;
-  var dn = now()/1000;
-  var pbr = media ? (media.playbackRate||1) : 1;
+  var dn = now() / 1000;
+  var pbr = media ? (media.playbackRate || 1) : 1;
   // 临时上下文用于 allocate
   var tempCtx = {
     media: media,
@@ -1413,19 +1411,19 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
     }
   };
   // 需要字体尺寸用于 createCommentCanvas
-  var fontSize = this._.stage? this._.stage._fontSize : { root: 16, container: 16 };
+  var fontSize = this._.stage ? this._.stage._fontSize : { root: 16, container: 16 };
 
   while (idx < prepared.length) {
     var cm = prepared[idx];
-    var t = cm.time||0;
+    var t = cm.time || 0;
     if (t > ct) break; // 之后都是未来弹幕
     if (t >= windowStart) {
       // 预创建 canvas
-      try { cm.canvas = createCommentCanvas(cm, fontSize); } catch(e) { cm.canvas = null; }
+      try { cm.canvas = createCommentCanvas(cm, fontSize); } catch (e) { cm.canvas = null; }
       // 计算 _utc 以保持位置连贯
       cm._utc = dn - (ct - t);
       // 分配 y
-      try { cm.y = allocate.call(tempCtx, cm); } catch(e) { cm.y = 0; }
+      try { cm.y = allocate.call(tempCtx, cm); } catch (e) { cm.y = 0; }
       visibleList.push(cm);
     }
     idx++;
@@ -1440,11 +1438,11 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
   var wasVisible = this._.visible;
   // 暂停动画循环（如果在运行）
   if (!wasPaused) {
-    try { caf(this._.requestID); } catch(_) {}
+    try { caf(this._.requestID); } catch (_) { }
     this._.requestID = 0;
-  // 关键修复：原来未将 paused 置回 true，随后调用 play() 会因 this._.paused===false 直接返回，导致动画不再恢复。
-  // 这里显式标记为暂停状态，使 play() 能重新建立 rAF 循环。
-  this._.paused = true;
+    // 关键修复：原来未将 paused 置回 true，随后调用 play() 会因 this._.paused===false 直接返回，导致动画不再恢复。
+    // 这里显式标记为暂停状态，使 play() 能重新建立 rAF 循环。
+    this._.paused = true;
   }
 
   // 原子替换内部结构
@@ -1456,7 +1454,7 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
   // 清帧并静态渲染一帧（避免空白）
   try {
     this._.engine.framing(this._.stage);
-    for (var ri=0; ri<visibleList.length; ri++) {
+    for (var ri = 0; ri < visibleList.length; ri++) {
       var vc = visibleList[ri];
       // 根据模式计算 x（复制 engine 内逻辑）
       var totalWidth = this._.width + vc.width;
@@ -1466,7 +1464,7 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
       if (vc.mode === 'top' || vc.mode === 'bottom') vc.x = (this._.width - vc.width) >> 1;
       this._.engine.render(this._.stage, vc);
     }
-  } catch(e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
 
   // 恢复播放状态
   if (wasVisible) {
@@ -1480,7 +1478,7 @@ Danmaku.prototype.replaceComments = function(newComments, opt){
 
   // 可选重建右键菜单（通常不需要）
   if (opt.resetCopyMenu && this._.enableCopyMenu) {
-    try { this._setupCopyContextMenu(); } catch(_) {}
+    try { this._setupCopyContextMenu(); } catch (_) { }
   }
   return this;
 };

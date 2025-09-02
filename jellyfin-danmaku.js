@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T14:35:48.556Z
+ * 构建时间: 2025-09-02T16:35:56.846Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -7526,12 +7526,10 @@
           style.font = style.font.replace(url, "'" + fam + "'");
           return;
         }
-        if (cache[url] && cache[url].status === 'failed') {
-          style.font = style.font.replace(url, 'sans-serif');
-          return;
-        }
-        // 触发加载，但本次仍使用原始值（浏览器会回退）
-        ensureRemoteFontLoaded(url);
+      // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
+      style.font = style.font.replace(url, 'sans-serif');
+      // 异步触发加载；后续新建弹幕会拿到已加载的家族名
+      ensureRemoteFontLoaded(url);
       } catch (_) { /* ignore */ }
     }
 
