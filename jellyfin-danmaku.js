@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-01T21:12:47.446Z
+ * 构建时间: 2025-09-02T04:07:37.509Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -724,8 +724,38 @@
           }
         };
         const setFilter = (kw) => {
-          const q = (kw || '').toLowerCase();
-          filtered = allFonts.filter(f => (f || '').toLowerCase().includes(q));
+          // 统一规范化：NFKC、去空白、去重音、lowerCase，提升中英文与带符号名称匹配鲁棒性
+          const normalize = (s) => {
+            let t = (s ?? '').toString();
+            try { t = t.normalize('NFKC'); } catch (_) {}
+            t = t.toLowerCase();
+            t = t.replace(/\s+/g, '');
+            try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (_) {}
+            return t;
+          };
+          const qNorm = normalize(kw || '');
+
+          filtered = allFonts.filter((f) => {
+            const candidates = [];
+            const fstr = (f || '').toString();
+            // 原始值（可能是字体名或服务器 URL）
+            candidates.push(fstr);
+            // 可见标签（如“服务器字体: 文件名”），其中会对 URL 末段做 decode
+            const lbl = labelFor(f);
+            if (lbl) candidates.push(lbl);
+            // 针对服务器字体 URL，额外加入“解码后的文件名”与“去扩展名”的候选，便于中文关键词检索
+            if (typeof fstr === 'string' && fstr.indexOf('/danmaku/font/') === 0) {
+              const last = (fstr.split('/').pop() || fstr).split('?')[0];
+              let dec = last;
+              try { dec = decodeURIComponent(last); } catch (_) {}
+              candidates.push(dec);
+              const noExt = dec.replace(/\.[a-z0-9]+$/i, '');
+              candidates.push(noExt);
+            }
+
+            return candidates.some((c) => normalize(c).includes(qNorm));
+          });
+
           // 优先把当前值放到顶部（保持存在感）
           if (current && filtered.indexOf(current) > 0) filtered = [current].concat(filtered.filter(x => x !== current));
           // 激活项尽量定位到当前值
