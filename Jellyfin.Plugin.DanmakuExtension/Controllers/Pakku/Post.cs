@@ -17,6 +17,7 @@ public partial class Pakku
         List<DanmuObjectDeleted> deleted
     )
     {
+        // 初始代表弹幕列表（按簇生成）
         var outDanmus = new List<DanmuObjectRepresentative>();
 
         // 将每个簇转换为代表弹幕
@@ -84,7 +85,7 @@ public partial class Pakku
         // 屏幕密度：预热（使用上一段的代表）
         double onscreen = 0;
         var subtractQueue = new Queue<(double expire, double dv)>();
-    var needDisp = cfg.ShrinkThreshold > 0 || cfg.DropThreshold > 0 || cfg.ScrollThreshold > 0;
+        var needDisp = cfg.ShrinkThreshold > 0 || cfg.DropThreshold > 0 || cfg.ScrollThreshold > 0;
         if (needDisp)
         {
             foreach (var c in prevClusters)
@@ -98,6 +99,8 @@ public partial class Pakku
         }
 
         // 按时间处理代表，进行 drop/shrink/scroll 等
+        // 注意：需要构建保留列表，命中 drop 的不应出现在最终输出
+        var keptDanmus = new List<DanmuObjectRepresentative>(outDanmus.Count);
         foreach (var dm in outDanmus.OrderBy(x => x.time_ms))
         {
             if (needDisp)
@@ -126,7 +129,7 @@ public partial class Pakku
                         content = dm.content,
                         pakku = new PakkuDeleted { deleted_reason = "弹幕密度" }
                     });
-                    continue; // 丢弃该条
+                    continue; // 丢弃该条（不加入 kept）
                 }
 
                 // 入场并记录过期
@@ -147,10 +150,13 @@ public partial class Pakku
 
                 stats.num_max_dispval = Math.Max(stats.num_max_dispval, onscreen);
             }
+
+            // 未命中 drop 的保留到输出
+            keptDanmus.Add(dm);
         }
 
-        stats.num_onscreen_danmu += outDanmus.Count;
-        return new DanmuChunk<DanmuObjectRepresentative> { objs = outDanmus, extra = inputChunk.extra };
+        stats.num_onscreen_danmu += keptDanmus.Count;
+        return new DanmuChunk<DanmuObjectRepresentative> { objs = keptDanmus, extra = inputChunk.extra };
     }
     #endregion
 

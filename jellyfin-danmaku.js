@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T21:16:05.441Z
+ * 构建时间: 2025-09-02T22:23:00.485Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -1489,7 +1489,7 @@
       // 显示合并标记：enable_mark (boolean)
       // 已移除：显示合并标记（enable_mark）
 
-      // 标记样式：mark_style (string via <select>)
+      // 合并计数标记样式：mark_style (string via <select>)
       _createMarkStyleRow() {
         const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
         let current = settings?.get?.('mark_style');
@@ -1506,7 +1506,7 @@
         row.style.textAlign = 'center';
 
         const title = document.createElement('span');
-        title.textContent = '标记样式';
+        title.textContent = '合并计数标记样式';
         title.style.fontSize = '12px';
         title.style.opacity = '.85';
         title.style.userSelect = 'none';
@@ -2447,6 +2447,323 @@
         return row;
       }
 
+      // 合并后尽量显示为静态弹幕：mode_elevation (boolean)
+      _createModeElevationRow() {
+        const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+        let current = !!settings?.get?.('mode_elevation');
+        const row = document.createElement('div');
+        row.className = 'danmaku-setting-row';
+        row.setAttribute('data-key', 'mode_elevation');
+        row.setAttribute('data-type', 'boolean');
+        row.style.display = 'flex';
+        row.style.flexDirection = 'column';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'center';
+        row.style.gap = '6px';
+        row.style.textAlign = 'center';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('role', 'switch');
+        btn.setAttribute('aria-checked', String(current));
+        btn.style.position = 'relative';
+        btn.style.width = '48px';
+        btn.style.height = '22px';
+        btn.style.borderRadius = '22px';
+        btn.style.border = '1px solid rgba(255,255,255,.3)';
+        btn.style.background = current ? 'linear-gradient(90deg,#3fa9ff,#0c82d8)' : 'rgba(255,255,255,.15)';
+        btn.style.cursor = 'pointer';
+        btn.style.transition = 'background .2s, box-shadow .2s';
+        btn.style.outline = 'none';
+        btn.style.padding = '0';
+        btn.style.marginTop = '6px';
+
+        const knob = document.createElement('span');
+        knob.style.position = 'absolute';
+        knob.style.top = '50%';
+        knob.style.transform = 'translateY(-50%)';
+        knob.style.left = current ? '26px' : '4px';
+        knob.style.width = '16px';
+        knob.style.height = '16px';
+        knob.style.borderRadius = '50%';
+        knob.style.background = '#fff';
+        knob.style.boxShadow = '0 2px 4px rgba(0,0,0,.4)';
+        knob.style.transition = 'left .2s';
+        btn.appendChild(knob);
+
+        const leftWrap = document.createElement('div');
+        leftWrap.style.display = 'flex';
+        leftWrap.style.flexDirection = 'column';
+        leftWrap.style.alignItems = 'center';
+        leftWrap.style.flex = '0 0 auto';
+
+        const title = document.createElement('span');
+        title.textContent = '合并后尽量显示为静态';
+        title.style.fontSize = '12px';
+        title.style.opacity = '.85';
+        title.style.marginBottom = '4px';
+        title.style.userSelect = 'none';
+        leftWrap.appendChild(title);
+        leftWrap.appendChild(btn);
+
+        const applyValue = (val, src = 'ui') => {
+          current = !!val;
+          try {
+            const liveSettings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+            liveSettings?.set?.('mode_elevation', current);
+            btn.setAttribute('aria-checked', String(current));
+            btn.style.background = current ? 'linear-gradient(90deg,#3fa9ff,#0c82d8)' : 'rgba(255,255,255,.15)';
+            knob.style.left = current ? '26px' : '4px';
+            this._ensureCombineUpdate();
+          } catch (_) { }
+          this.logger?.info?.('[CombineSettings] mode_elevation ->', current, 'from', src);
+        };
+
+        row.addEventListener('click', (e) => { if (btn.contains(e.target)) return; applyValue(!current, 'row'); });
+        btn.addEventListener('click', () => applyValue(!current, 'click'));
+        btn.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); applyValue(!current, 'key'); } });
+
+        row.appendChild(leftWrap);
+        return row;
+      }
+
+      // 过宽静态弹幕转为滚动阈值：scroll_threshold (0-1920) 滑块 px
+      _createScrollThresholdRow() {
+        const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+        let current = settings?.get?.('scroll_threshold');
+        if (typeof current !== 'number' || !Number.isFinite(current)) current = 0;
+        if (current < 0) current = 0; else if (current > 1920) current = 1920;
+
+        const row = document.createElement('div');
+        row.className = 'danmaku-setting-row';
+        row.setAttribute('data-key', 'scroll_threshold');
+        row.setAttribute('data-type', 'range');
+        row.style.display = 'flex';
+        row.style.flexDirection = 'column';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'center';
+        row.style.gap = '6px';
+        row.style.textAlign = 'center';
+
+        const title = document.createElement('span');
+        title.textContent = '过长静态弹幕转为滚动阈值';
+        title.style.fontSize = '12px';
+        title.style.opacity = '.85';
+        title.style.userSelect = 'none';
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '1920';
+        slider.step = '1';
+        slider.value = String(current);
+        slider.style.width = '140px';
+        slider.style.cursor = 'pointer';
+        slider.style.accentColor = '#3fa9ff';
+
+        const valSpan = document.createElement('span');
+        valSpan.textContent = String(current) + ' px';
+        valSpan.style.minWidth = '0';
+        valSpan.style.textAlign = 'center';
+        valSpan.style.fontSize = '12px';
+        valSpan.style.opacity = '.85';
+        valSpan.style.whiteSpace = 'nowrap';
+        valSpan.style.overflow = 'hidden';
+        valSpan.style.textOverflow = 'clip';
+        valSpan.style.flex = '0 0 auto';
+        valSpan.style.width = '140px';
+
+        const sliderLine = document.createElement('div');
+        sliderLine.style.display = 'flex';
+        sliderLine.style.flexDirection = 'column';
+        sliderLine.style.alignItems = 'center';
+        sliderLine.style.gap = '4px';
+        sliderLine.style.width = '100%';
+        sliderLine.style.maxWidth = '190px';
+        sliderLine.appendChild(valSpan);
+        sliderLine.appendChild(slider);
+
+        const applyValue = (val, src = 'ui') => {
+          let n = parseInt(val, 10);
+          if (!Number.isFinite(n)) n = 0;
+          if (n < 0) n = 0; else if (n > 1920) n = 1920;
+          current = n;
+          slider.value = String(n);
+          try {
+            const liveSettings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+            liveSettings?.set?.('scroll_threshold', n);
+            this._ensureCombineUpdate();
+          } catch (_) { }
+          this.logger?.info?.('[CombineSettings] scroll_threshold ->', current, 'from', src);
+        };
+
+        slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value + ' px'; });
+        slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value + ' px'; });
+        row.addEventListener('click', () => slider.focus());
+
+        row.appendChild(title);
+        row.appendChild(sliderLine);
+        return row;
+      }
+
+      // 密度过高时，弹幕缩小阈值：shrink_threshold (0-500) 滑块 条
+      _createShrinkThresholdRow() {
+        const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+        let current = settings?.get?.('shrink_threshold');
+        if (typeof current !== 'number' || !Number.isFinite(current)) current = 0;
+        if (current < 0) current = 0; else if (current > 500) current = 500;
+
+        const row = document.createElement('div');
+        row.className = 'danmaku-setting-row';
+        row.setAttribute('data-key', 'shrink_threshold');
+        row.setAttribute('data-type', 'range');
+        row.style.display = 'flex';
+        row.style.flexDirection = 'column';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'center';
+        row.style.gap = '6px';
+        row.style.textAlign = 'center';
+
+        const title = document.createElement('span');
+        title.textContent = '弹幕缩小阈值';
+        title.style.fontSize = '12px';
+        title.style.opacity = '.85';
+        title.style.userSelect = 'none';
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+      slider.min = '0';
+      slider.max = '500';
+        slider.step = '1';
+        slider.value = String(current);
+        slider.style.width = '140px';
+        slider.style.cursor = 'pointer';
+        slider.style.accentColor = '#3fa9ff';
+
+        const valSpan = document.createElement('span');
+        valSpan.textContent = String(current) + ' 条';
+        valSpan.style.minWidth = '0';
+        valSpan.style.textAlign = 'center';
+        valSpan.style.fontSize = '12px';
+        valSpan.style.opacity = '.85';
+        valSpan.style.whiteSpace = 'nowrap';
+        valSpan.style.overflow = 'hidden';
+        valSpan.style.textOverflow = 'clip';
+        valSpan.style.flex = '0 0 auto';
+        valSpan.style.width = '140px';
+
+        const sliderLine = document.createElement('div');
+        sliderLine.style.display = 'flex';
+        sliderLine.style.flexDirection = 'column';
+        sliderLine.style.alignItems = 'center';
+        sliderLine.style.gap = '4px';
+        sliderLine.style.width = '100%';
+        sliderLine.style.maxWidth = '190px';
+        sliderLine.appendChild(valSpan);
+        sliderLine.appendChild(slider);
+
+        const applyValue = (val, src = 'ui') => {
+          let n = parseInt(val, 10);
+      if (!Number.isFinite(n)) n = 0;
+      if (n < 0) n = 0; else if (n > 500) n = 500;
+          current = n;
+          slider.value = String(n);
+          try {
+            const liveSettings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+            liveSettings?.set?.('shrink_threshold', n);
+            this._ensureCombineUpdate();
+          } catch (_) { }
+          this.logger?.info?.('[CombineSettings] shrink_threshold ->', current, 'from', src);
+        };
+
+        slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value + ' 条'; });
+        slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value + ' 条'; });
+        row.addEventListener('click', () => slider.focus());
+
+        row.appendChild(title);
+        row.appendChild(sliderLine);
+        return row;
+      }
+
+      // 密度过高时，丢弃弹幕阈值：drop_threshold (0-500) 滑块 条
+      _createDropThresholdRow() {
+        const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+        let current = settings?.get?.('drop_threshold');
+        if (typeof current !== 'number' || !Number.isFinite(current)) current = 0;
+        if (current < 0) current = 0; else if (current > 500) current = 500;
+
+        const row = document.createElement('div');
+        row.className = 'danmaku-setting-row';
+        row.setAttribute('data-key', 'drop_threshold');
+        row.setAttribute('data-type', 'range');
+        row.style.display = 'flex';
+        row.style.flexDirection = 'column';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'center';
+        row.style.gap = '6px';
+        row.style.textAlign = 'center';
+
+        const title = document.createElement('span');
+        title.textContent = '丢弃弹幕阈值';
+        title.style.fontSize = '12px';
+        title.style.opacity = '.85';
+        title.style.userSelect = 'none';
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+      slider.min = '0';
+      slider.max = '500';
+        slider.step = '1';
+        slider.value = String(current);
+        slider.style.width = '140px';
+        slider.style.cursor = 'pointer';
+        slider.style.accentColor = '#3fa9ff';
+
+        const valSpan = document.createElement('span');
+        valSpan.textContent = String(current) + ' 条';
+        valSpan.style.minWidth = '0';
+        valSpan.style.textAlign = 'center';
+        valSpan.style.fontSize = '12px';
+        valSpan.style.opacity = '.85';
+        valSpan.style.whiteSpace = 'nowrap';
+        valSpan.style.overflow = 'hidden';
+        valSpan.style.textOverflow = 'clip';
+        valSpan.style.flex = '0 0 auto';
+        valSpan.style.width = '140px';
+
+        const sliderLine = document.createElement('div');
+        sliderLine.style.display = 'flex';
+        sliderLine.style.flexDirection = 'column';
+        sliderLine.style.alignItems = 'center';
+        sliderLine.style.gap = '4px';
+        sliderLine.style.width = '100%';
+        sliderLine.style.maxWidth = '190px';
+        sliderLine.appendChild(valSpan);
+        sliderLine.appendChild(slider);
+
+        const applyValue = (val, src = 'ui') => {
+          let n = parseInt(val, 10);
+      if (!Number.isFinite(n)) n = 0;
+      if (n < 0) n = 0; else if (n > 500) n = 500;
+          current = n;
+          slider.value = String(n);
+          try {
+            const liveSettings = window?.__jfDanmakuGlobal__?.danmakuSettings;
+            liveSettings?.set?.('drop_threshold', n);
+            this._ensureCombineUpdate();
+          } catch (_) { }
+          this.logger?.info?.('[CombineSettings] drop_threshold ->', current, 'from', src);
+        };
+
+        slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value + ' 条'; });
+        slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value + ' 条'; });
+        row.addEventListener('click', () => slider.focus());
+
+        row.appendChild(title);
+        row.appendChild(sliderLine);
+        return row;
+      }
+
       build() {
         const panel = document.createElement('div');
         panel.className = 'danmaku-settings-tabPanel';
@@ -2461,8 +2778,25 @@
         list.style.rowGap = '14px';
         list.style.alignItems = 'stretch';
         list.style.width = '100%';
-        list.appendChild(this._createEnableCombineRow());
-        list.appendChild(this._createCombineTimeRow());
+        const _stickyRow1 = this._createEnableCombineRow();
+        const _stickyRow2 = this._createCombineTimeRow();
+        // 顶部两栏固定在顶部（随页面滚动吸附），保持两列布局
+        try {
+          const stickyStyle = (el) => {
+            el.style.position = 'sticky';
+            el.style.top = '0px';
+            el.style.zIndex = '10';
+            // 背景与分隔线，避免下层内容透出
+            el.style.background = 'rgba(30,30,30,0.92)';
+            el.style.borderBottom = '1px solid rgba(255,255,255,.12)';
+            // 轻微投影提升层次感
+            el.style.boxShadow = '0 2px 6px rgba(0,0,0,.25)';
+          };
+          stickyStyle(_stickyRow1);
+          stickyStyle(_stickyRow2);
+        } catch (_) { /* no-op */ }
+        list.appendChild(_stickyRow1);
+        list.appendChild(_stickyRow2);
         list.appendChild(this._createMarkStyleRow());
         list.appendChild(this._createMarkThresholdRow());
         list.appendChild(this._createThresholdSecondsRow());
@@ -2473,6 +2807,11 @@
         list.appendChild(this._createMaxChunkSizeRow());
         list.appendChild(this._createCrossModeRow());
         list.appendChild(this._createNormalizeRow());
+      // 新增 4 项
+      list.appendChild(this._createModeElevationRow());
+      list.appendChild(this._createScrollThresholdRow());
+      list.appendChild(this._createShrinkThresholdRow());
+      list.appendChild(this._createDropThresholdRow());
 
         // 占位：后续将添加具体参数（阈值、白名单等）
         const placeholder = document.createElement('div');
