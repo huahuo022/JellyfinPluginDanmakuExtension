@@ -94,7 +94,7 @@
             <label class="inputLabel inputLabelUnfocused" for="txtDanmakuCacheMinutes">缓存时间(分钟)</label>
             <input is="emby-input" id="txtDanmakuCacheMinutes" label="缓存时间(分钟)" placeholder="0" type="number"
               pattern="[0-9-]*" min="-1" step="1" class="emby-input">
-            <div class="fieldDescription">-1表示永久缓存，0表示不缓存，1-525600(365天)</div>
+            <div class="fieldDescription">-1表示永久缓存，0表示不缓存，未设置代理或自定义服务器时,将强制最少30分钟缓存</div>
           </div>
           <div class="sectionTitleContainer">
             <h3>启用自动匹配弹幕功能的媒体库</h3>
@@ -102,7 +102,6 @@
           <div id="librariesContainer" class="checkboxList paperList" style="padding: 0.5em 1em;">
             <!-- 媒体库列表将在这里动态生成 -->
           </div>
-          <div class="fieldDescription">未开启的媒体库可以使用手动设置或者加载本地弹幕</div>
           <div class="buttons">
             <button is="emby-button" type="submit" class="raised button-submit block emby-button"
               id="btnSaveCustomJs">保存设置</button>

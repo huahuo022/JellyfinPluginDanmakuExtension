@@ -193,17 +193,18 @@ public partial class DanmakuService
         }
     }
 
-    public async Task<string?> GetFromCache(string cacheKey)
+    public async Task<string?> GetFromCache(string cacheKey, int? minCacheMinutes = null)
     {
         try
         {
             var cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             var cacheMinutes = cfg.DanmakuCacheMinutes;
-
-            // 如果设置为不缓存，直接返回null
-            if (cacheMinutes == 0)
+            // 计算生效的缓存时间（分钟）：
+            // -1 表示永久；否则应用“不得低于 minCacheMinutes”的限制
+            int? effectiveMinutes = cacheMinutes == -1 ? -1 : Math.Max(cacheMinutes, minCacheMinutes ?? 0);
+            if (effectiveMinutes == 0)
             {
-                return null;
+                return null; // 仍允许显式禁用缓存（且未提供更大的最小值）
             }
 
             using var connection = await OpenConnectionAsync();
@@ -224,13 +225,13 @@ public partial class DanmakuService
                 var cacheTime = reader.GetDateTime(1); // cache_time 字段
 
                 // 如果设置为永久缓存，直接返回
-                if (cacheMinutes == -1)
+                if (effectiveMinutes == -1)
                 {
                     return content;
                 }
 
                 // 检查是否过期
-                var expireTime = cacheTime.AddMinutes(cacheMinutes);
+                var expireTime = cacheTime.AddMinutes(effectiveMinutes!.Value);
                 if (DateTime.UtcNow <= expireTime)
                 {
                     return content;

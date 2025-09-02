@@ -26,5 +26,10 @@
     <EmbeddedResource Include="Controllers\Pakku\pinyin_dict.txt" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Controllers\Service\dandanplay.secret.embedded.json" />
+  </ItemGroup>
+
+
 
 </Project>

@@ -363,3 +363,9 @@ js_build_and_push.py
 
 
 
+# Local secrets
+# 仅保留嵌入式资源（不再使用本地明文密钥文件）
+Jellyfin.Plugin.DanmakuExtension/Controllers/Service/dandanplay.secret.embedded.json
+
+
+

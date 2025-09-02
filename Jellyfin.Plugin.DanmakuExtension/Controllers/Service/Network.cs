@@ -2,6 +2,10 @@ using System.Web;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.IO;
+using System.Reflection;
+using System.Linq;
 
 
 namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
@@ -38,8 +42,37 @@ public partial class DanmakuService
         });
         var cacheKey = ComputeMd5Lower(keyMaterial);
 
-        // 先查缓存
-        var cached = await GetFromCache(cacheKey);
+        // 若目标为 dandanplay 官方域名，预解析凭据以决定是否强制最小缓存时间
+        string? resolvedAppId = null;
+        string? resolvedAppSecret = null;
+        bool usedEmbeddedSecrets = false;
+        if (!string.IsNullOrWhiteSpace(normalizedBase) &&
+            normalizedBase.Equals("https://api.dandanplay.net", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var cfg2_pre = Plugin.Instance?.Configuration as PluginConfiguration;
+                resolvedAppId = cfg2_pre?.DandanplayAppId;
+                resolvedAppSecret = cfg2_pre?.DandanplayAppSecret;
+                if (string.IsNullOrWhiteSpace(resolvedAppId)) resolvedAppId = Environment.GetEnvironmentVariable("DANDANPLAY_APP_ID");
+                if (string.IsNullOrWhiteSpace(resolvedAppSecret)) resolvedAppSecret = Environment.GetEnvironmentVariable("DANDANPLAY_APP_SECRET");
+
+                if (string.IsNullOrWhiteSpace(resolvedAppId) || string.IsNullOrWhiteSpace(resolvedAppSecret))
+                {
+                    var secPre = LoadEmbeddedDandanplaySecrets();
+                    if (secPre != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(resolvedAppId)) resolvedAppId = secPre.AppId;
+                        if (string.IsNullOrWhiteSpace(resolvedAppSecret)) resolvedAppSecret = secPre.AppSecret;
+                        usedEmbeddedSecrets = true;
+                    }
+                }
+            }
+            catch { /* 解析失败时不影响后续逻辑，稍后会在发送前抛出更明确的错误 */ }
+        }
+
+        // 先查缓存（若使用内置密钥，则强制最小缓存 30 分钟）
+        var cached = await GetFromCache(cacheKey, usedEmbeddedSecrets ? 30 : (int?)null);
         if (cached != null)
         {
             await IncrementCacheHitAsync();
@@ -60,20 +93,40 @@ public partial class DanmakuService
             if (!string.IsNullOrWhiteSpace(normalizedBase) &&
                 normalizedBase.Equals("https://api.dandanplay.net", StringComparison.OrdinalIgnoreCase))
             {
-                var cfg2 = Plugin.Instance?.Configuration as PluginConfiguration;
-                var appId2 = cfg2?.DandanplayAppId;
-                var appSecret2 = cfg2?.DandanplayAppSecret;
-                if (string.IsNullOrWhiteSpace(appId2)) appId2 = Environment.GetEnvironmentVariable("DANDANPLAY_APP_ID");
-                if (string.IsNullOrWhiteSpace(appSecret2)) appSecret2 = Environment.GetEnvironmentVariable("DANDANPLAY_APP_SECRET");
+                // 若尚未预解析（或解析为空），在此确保已解析，否则抛错
+                if (string.IsNullOrWhiteSpace(resolvedAppId) || string.IsNullOrWhiteSpace(resolvedAppSecret))
+                {
+                    var cfg2 = Plugin.Instance?.Configuration as PluginConfiguration;
+                    resolvedAppId = cfg2?.DandanplayAppId;
+                    resolvedAppSecret = cfg2?.DandanplayAppSecret;
+                    if (string.IsNullOrWhiteSpace(resolvedAppId)) resolvedAppId = Environment.GetEnvironmentVariable("DANDANPLAY_APP_ID");
+                    if (string.IsNullOrWhiteSpace(resolvedAppSecret)) resolvedAppSecret = Environment.GetEnvironmentVariable("DANDANPLAY_APP_SECRET");
+                    if (string.IsNullOrWhiteSpace(resolvedAppId) || string.IsNullOrWhiteSpace(resolvedAppSecret))
+                    {
+                        try
+                        {
+                            var sec = LoadEmbeddedDandanplaySecrets();
+                            if (sec != null)
+                            {
+                                if (string.IsNullOrWhiteSpace(resolvedAppId)) resolvedAppId = sec.AppId;
+                                if (string.IsNullOrWhiteSpace(resolvedAppSecret)) resolvedAppSecret = sec.AppSecret;
+                            }
+                        }
+                        catch (Exception ex2)
+                        {
+                            _logger.LogWarning(ex2, "读取 dandanplay 嵌入密钥失败");
+                        }
+                    }
+                }
 
-                if (string.IsNullOrWhiteSpace(appId2) || string.IsNullOrWhiteSpace(appSecret2))
+                if (string.IsNullOrWhiteSpace(resolvedAppId) || string.IsNullOrWhiteSpace(resolvedAppSecret))
                 {
                     const string msg = "未设置 dandanplay AppId/AppSecret（请设置环境变量 DANDANPLAY_APP_ID / DANDANPLAY_APP_SECRET），api.dandanplay.net 不加请求头无法访问";
                     _logger.LogError(msg);
                     throw new InvalidOperationException(msg);
                 }
 
-                var headers2 = GenerateDandanHeadersForUrl(appId2!, appSecret2!, fullUrl);
+                var headers2 = GenerateDandanHeadersForUrl(resolvedAppId!, resolvedAppSecret!, fullUrl);
                 foreach (var kv in headers2)
                 {
                     req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
@@ -221,5 +274,51 @@ public partial class DanmakuService
                 ? serverBase!
                 : "https://api.dandanplay.net";
         return baseUrl.TrimEnd('/');
+    }
+
+    // 密钥数据结构
+    private sealed class DandanplaySecrets
+    {
+        public string? AppId { get; set; }
+        public string? AppSecret { get; set; }
+    }
+
+    private DandanplaySecrets? LoadEmbeddedDandanplaySecrets()
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        // 示例资源名：Jellyfin.Plugin.DanmakuExtension.Controllers.Service.dandanplay.secret.embedded.json
+        var resName = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("Controllers.Service.dandanplay.secret.embedded.json", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(resName)) return null;
+
+        using var stream = asm.GetManifestResourceStream(resName);
+        if (stream == null) return null;
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var json = reader.ReadToEnd();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        string? Read(string name)
+            => root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+
+        static string? Decode(string? enc)
+        {
+            if (string.IsNullOrWhiteSpace(enc)) return null;
+            var reversed = new string(enc!.Reverse().ToArray());
+            try
+            {
+                var bytes = Convert.FromBase64String(reversed);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        var id = Decode(Read("appIdEnc"));
+        var secret = Decode(Read("appSecretEnc"));
+        if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(secret)) return null;
+        return new DandanplaySecrets { AppId = id, AppSecret = secret };
     }
 }
