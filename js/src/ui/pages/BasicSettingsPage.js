@@ -1,5 +1,5 @@
 // 基础设置分页：提供基础弹幕相关可视化与行为调节
-import { saveIfAutoOn } from "../../api/utils";
+import { saveIfAutoOn, ensureCurrentServerFontCached } from "../../api/utils";
 
 export class BasicSettingsPage {
   constructor(opts = {}) { this.logger = opts.logger || null; }
@@ -293,10 +293,16 @@ export class BasicSettingsPage {
       activeIndex = filtered.length ? (Math.max(0, filtered.indexOf(current))) : -1;
       renderList();
     };
-    const selectFont = (val) => {
+    const selectFont = async (val) => {
       if (!val) return;
       // 更新设置并失焦
       applyValue(val);
+      // 若为服务器字体，则尝试预缓存
+      try {
+        if (typeof val === 'string' && val.indexOf('/danmaku/font/') === 0) {
+          await ensureCurrentServerFontCached(this.logger);
+        }
+      } catch (_) {}
       current = val;
   input.value = '';
   input.placeholder = labelFor(val);
@@ -375,6 +381,8 @@ export class BasicSettingsPage {
         const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
         if (Array.isArray(g.availableFontFamilies) && g.availableFontFamilies.length) {
           populateFonts(g.availableFontFamilies);
+          // 尝试为当前服务器字体进行预缓存
+          try { await ensureCurrentServerFontCached(this.logger); } catch (_) {}
           return;
         }
         let fonts = await detectViaLocalFontAccess();
@@ -394,6 +402,8 @@ export class BasicSettingsPage {
         }
         g.availableFontFamilies = fonts;
         populateFonts(fonts);
+        // 尝试为当前服务器字体进行预缓存
+        try { await ensureCurrentServerFontCached(this.logger); } catch (_) {}
       } catch (e) {
         // 最终失败，使用最小集合
         populateFonts([current || 'sans-serif']);

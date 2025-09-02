@@ -108,24 +108,53 @@ function ensureRemoteFontLoaded(urlPath) {
       }
     } catch (_) { /* ignore */ }
 
-    var ff;
-    try {
-      ff = new FontFace(family, "url(" + absUrl + ")", { style: 'normal', weight: '400', display: 'swap' });
-    } catch (e) {
-      // 无法构造 FontFace，直接标记失败
-      cache[urlPath] = { status: 'failed', error: String(e) };
-      return Promise.resolve(null);
-    }
+    // 优先从 Cache Storage 读取；否则网络获取，并将结果写入缓存
+    var p = (async function(){
+      try {
+        var useCaches = (typeof caches !== 'undefined' && caches.open);
+        var arrBuf = null;
+        var typeHint = 'font/ttf';
+        if (useCaches) {
+          try {
+            var c = await caches.open('jfdanmaku-fonts-v1');
+            var req = new Request(absUrl, { credentials: 'same-origin', mode: 'cors' });
+            var hit = await c.match(req);
+            if (hit) {
+              arrBuf = await hit.arrayBuffer();
+              typeHint = hit.headers.get('content-type') || typeHint;
+            }
+          } catch (_) {}
+        }
 
-    var p = ff.load().then(function(loaded){
-      try { document.fonts.add(loaded); } catch (_) {}
-      cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-      try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
-      return family;
-    }).catch(function(err){
-      cache[urlPath] = { status: 'failed', error: String(err) };
-      return null;
-    });
+        if (!arrBuf) {
+          var resp = await fetch(absUrl, { credentials: 'same-origin', mode: 'cors' });
+          if (!resp || !resp.ok) throw new Error('HTTP ' + (resp && resp.status));
+          // 写入缓存（不阻塞）
+          try {
+            if (useCaches) {
+              var c2 = await caches.open('jfdanmaku-fonts-v1');
+              await c2.put(new Request(absUrl, { credentials: 'same-origin', mode: 'cors' }), resp.clone());
+            }
+          } catch (_) {}
+          typeHint = resp.headers.get('content-type') || typeHint;
+          arrBuf = await resp.arrayBuffer();
+        }
+
+  // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
+  var blob = new Blob([arrBuf], { type: typeHint });
+  var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
+  var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+  var loaded = await ff.load();
+        try { document.fonts.add(loaded); } catch (_) {}
+  try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) {}
+        cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
+        try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
+        return family;
+      } catch (err) {
+        cache[urlPath] = { status: 'failed', error: String(err) };
+        return null;
+      }
+    })();
     cache[urlPath] = { status: 'loading', family: family, promise: p };
     return p;
   } catch (e) {
@@ -223,7 +252,7 @@ function createCommentCanvas(cmt, fontSize) {
   var style = cmt.style || {};
 
   // 设置默认样式
-  style.font = style.font || '10px sans-serif';
+  style.font = style.font || '25px sans-serif';
   style.textBaseline = style.textBaseline || 'bottom';
 
   // 如包含远程字体占位，尽量重写为已加载的家族名

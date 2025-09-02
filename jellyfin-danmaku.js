@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T04:07:37.509Z
+ * 构建时间: 2025-09-02T14:19:46.619Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -468,6 +468,45 @@
       }
     }
 
+    // 检查当前设置的服务器字体是否已缓存，若未缓存则下载并保存到 Cache Storage
+    // 返回 Promise<boolean> 表示是否已在缓存中（或已成功缓存）
+    async function ensureCurrentServerFontCached(logger = null) {
+      try {
+        const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+        const settings = g.danmakuSettings;
+        const val = settings?.get?.('font_family');
+        if (!val || typeof val !== 'string' || val.indexOf('/danmaku/font/') !== 0) return false;
+
+        // 规范化绝对地址
+        let absUrl = val.replace(/^\/+/, '');
+        try { if (typeof ApiClient !== 'undefined' && ApiClient.getUrl) absUrl = ApiClient.getUrl(absUrl); } catch (_) {}
+
+        if (typeof caches === 'undefined' || !caches?.open) return false; // 环境不支持 Cache Storage
+
+        const cache = await caches.open('jfdanmaku-fonts-v1');
+        const req = new Request(absUrl, { credentials: 'same-origin', mode: 'cors' });
+        const hit = await cache.match(req);
+        if (hit) return true;
+
+        // 下载并写入缓存
+        const resp = await fetch(req);
+        if (!resp || !resp.ok) {
+          logger?.warn?.('字体下载失败', absUrl, resp?.status);
+          return false;
+        }
+        // 复制响应体，避免一次性消耗
+        const cloned = resp.clone();
+        await cache.put(req, cloned);
+        return true;
+      } catch (e) {
+        logger?.warn?.('缓存服务器字体失败', e);
+        return false;
+      }
+    }
+
+    // 暴露到全局，方便无需模块导入时使用
+    try { (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {}).ensureCurrentServerFontCached = ensureCurrentServerFontCached; } catch (_) {}
+
     // 基础设置分页：提供基础弹幕相关可视化与行为调节
 
     class BasicSettingsPage {
@@ -762,10 +801,16 @@
           activeIndex = filtered.length ? (Math.max(0, filtered.indexOf(current))) : -1;
           renderList();
         };
-        const selectFont = (val) => {
+        const selectFont = async (val) => {
           if (!val) return;
           // 更新设置并失焦
           applyValue(val);
+          // 若为服务器字体，则尝试预缓存
+          try {
+            if (typeof val === 'string' && val.indexOf('/danmaku/font/') === 0) {
+              await ensureCurrentServerFontCached(this.logger);
+            }
+          } catch (_) {}
           current = val;
       input.value = '';
       input.placeholder = labelFor(val);
@@ -844,6 +889,8 @@
             const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
             if (Array.isArray(g.availableFontFamilies) && g.availableFontFamilies.length) {
               populateFonts(g.availableFontFamilies);
+              // 尝试为当前服务器字体进行预缓存
+              try { await ensureCurrentServerFontCached(this.logger); } catch (_) {}
               return;
             }
             let fonts = await detectViaLocalFontAccess();
@@ -863,6 +910,8 @@
             }
             g.availableFontFamilies = fonts;
             populateFonts(fonts);
+            // 尝试为当前服务器字体进行预缓存
+            try { await ensureCurrentServerFontCached(this.logger); } catch (_) {}
           } catch (e) {
             // 最终失败，使用最小集合
             populateFonts([current || 'sans-serif']);
@@ -7405,24 +7454,53 @@
           }
         } catch (_) { /* ignore */ }
 
-        var ff;
-        try {
-          ff = new FontFace(family, "url(" + absUrl + ")", { style: 'normal', weight: '400', display: 'swap' });
-        } catch (e) {
-          // 无法构造 FontFace，直接标记失败
-          cache[urlPath] = { status: 'failed', error: String(e) };
-          return Promise.resolve(null);
-        }
+        // 优先从 Cache Storage 读取；否则网络获取，并将结果写入缓存
+        var p = (async function(){
+          try {
+            var useCaches = (typeof caches !== 'undefined' && caches.open);
+            var arrBuf = null;
+            var typeHint = 'font/ttf';
+            if (useCaches) {
+              try {
+                var c = await caches.open('jfdanmaku-fonts-v1');
+                var req = new Request(absUrl, { credentials: 'same-origin', mode: 'cors' });
+                var hit = await c.match(req);
+                if (hit) {
+                  arrBuf = await hit.arrayBuffer();
+                  typeHint = hit.headers.get('content-type') || typeHint;
+                }
+              } catch (_) {}
+            }
 
-        var p = ff.load().then(function(loaded){
-          try { document.fonts.add(loaded); } catch (_) {}
-          cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-          try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
-          return family;
-        }).catch(function(err){
-          cache[urlPath] = { status: 'failed', error: String(err) };
-          return null;
-        });
+            if (!arrBuf) {
+              var resp = await fetch(absUrl, { credentials: 'same-origin', mode: 'cors' });
+              if (!resp || !resp.ok) throw new Error('HTTP ' + (resp && resp.status));
+              // 写入缓存（不阻塞）
+              try {
+                if (useCaches) {
+                  var c2 = await caches.open('jfdanmaku-fonts-v1');
+                  await c2.put(new Request(absUrl, { credentials: 'same-origin', mode: 'cors' }), resp.clone());
+                }
+              } catch (_) {}
+              typeHint = resp.headers.get('content-type') || typeHint;
+              arrBuf = await resp.arrayBuffer();
+            }
+
+      // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
+      var blob = new Blob([arrBuf], { type: typeHint });
+      var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
+      var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+      var loaded = await ff.load();
+            try { document.fonts.add(loaded); } catch (_) {}
+      try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) {}
+            cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
+            try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
+            return family;
+          } catch (err) {
+            cache[urlPath] = { status: 'failed', error: String(err) };
+            return null;
+          }
+        })();
         cache[urlPath] = { status: 'loading', family: family, promise: p };
         return p;
       } catch (e) {
@@ -7520,7 +7598,7 @@
       var style = cmt.style || {};
 
       // 设置默认样式
-      style.font = style.font || '10px sans-serif';
+      style.font = style.font || '25px sans-serif';
       style.textBaseline = style.textBaseline || 'bottom';
 
       // 如包含远程字体占位，尽量重写为已加载的家族名

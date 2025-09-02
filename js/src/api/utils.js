@@ -94,3 +94,42 @@ export function saveIfAutoOn(logger = null) {
     logger?.warn?.('保存设置失败', err);
   }
 }
+
+// 检查当前设置的服务器字体是否已缓存，若未缓存则下载并保存到 Cache Storage
+// 返回 Promise<boolean> 表示是否已在缓存中（或已成功缓存）
+export async function ensureCurrentServerFontCached(logger = null) {
+  try {
+    const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+    const settings = g.danmakuSettings;
+    const val = settings?.get?.('font_family');
+    if (!val || typeof val !== 'string' || val.indexOf('/danmaku/font/') !== 0) return false;
+
+    // 规范化绝对地址
+    let absUrl = val.replace(/^\/+/, '');
+    try { if (typeof ApiClient !== 'undefined' && ApiClient.getUrl) absUrl = ApiClient.getUrl(absUrl); } catch (_) {}
+
+    if (typeof caches === 'undefined' || !caches?.open) return false; // 环境不支持 Cache Storage
+
+    const cache = await caches.open('jfdanmaku-fonts-v1');
+    const req = new Request(absUrl, { credentials: 'same-origin', mode: 'cors' });
+    const hit = await cache.match(req);
+    if (hit) return true;
+
+    // 下载并写入缓存
+    const resp = await fetch(req);
+    if (!resp || !resp.ok) {
+      logger?.warn?.('字体下载失败', absUrl, resp?.status);
+      return false;
+    }
+    // 复制响应体，避免一次性消耗
+    const cloned = resp.clone();
+    await cache.put(req, cloned);
+    return true;
+  } catch (e) {
+    logger?.warn?.('缓存服务器字体失败', e);
+    return false;
+  }
+}
+
+// 暴露到全局，方便无需模块导入时使用
+try { (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {}).ensureCurrentServerFontCached = ensureCurrentServerFontCached; } catch (_) {}
