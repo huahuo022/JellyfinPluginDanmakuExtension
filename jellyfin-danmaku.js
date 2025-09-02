@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T14:19:46.619Z
+ * 构建时间: 2025-09-02T14:35:48.556Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -795,9 +795,7 @@
             return candidates.some((c) => normalize(c).includes(qNorm));
           });
 
-          // 优先把当前值放到顶部（保持存在感）
-          if (current && filtered.indexOf(current) > 0) filtered = [current].concat(filtered.filter(x => x !== current));
-          // 激活项尽量定位到当前值
+      // 保持自然顺序，仅将激活项定位到当前值
           activeIndex = filtered.length ? (Math.max(0, filtered.indexOf(current))) : -1;
           renderList();
         };
@@ -823,7 +821,7 @@
           fontList.forEach(f => { if (f) gset.add(f); });
           ['sans-serif', 'serif', 'monospace', 'system-ui'].forEach(f => gset.add(f));
           allFonts = Array.from(gset).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
-          if (current && !allFonts.includes(current)) allFonts.unshift(current);
+      if (current && !allFonts.includes(current)) allFonts.push(current);
       // 初始以占位符展示当前字体（虚化）
       input.value = '';
       input.placeholder = labelFor(current);

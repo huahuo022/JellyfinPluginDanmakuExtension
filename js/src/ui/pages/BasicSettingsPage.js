@@ -287,9 +287,7 @@ export class BasicSettingsPage {
         return candidates.some((c) => normalize(c).includes(qNorm));
       });
 
-      // 优先把当前值放到顶部（保持存在感）
-      if (current && filtered.indexOf(current) > 0) filtered = [current].concat(filtered.filter(x => x !== current));
-      // 激活项尽量定位到当前值
+  // 保持自然顺序，仅将激活项定位到当前值
       activeIndex = filtered.length ? (Math.max(0, filtered.indexOf(current))) : -1;
       renderList();
     };
@@ -315,7 +313,7 @@ export class BasicSettingsPage {
       fontList.forEach(f => { if (f) gset.add(f); });
       ['sans-serif', 'serif', 'monospace', 'system-ui'].forEach(f => gset.add(f));
       allFonts = Array.from(gset).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
-      if (current && !allFonts.includes(current)) allFonts.unshift(current);
+  if (current && !allFonts.includes(current)) allFonts.push(current);
   // 初始以占位符展示当前字体（虚化）
   input.value = '';
   input.placeholder = labelFor(current);
