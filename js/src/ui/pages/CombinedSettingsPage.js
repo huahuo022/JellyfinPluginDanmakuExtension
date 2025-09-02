@@ -338,7 +338,7 @@ export class CombinedSettingsPage {
     leftWrap.style.flex = '0 0 auto';
 
     const title = document.createElement('span');
-    title.textContent = '拼音相似度匹配';
+    title.textContent = '识别谐音弹幕';
     title.style.fontSize = '12px';
     title.style.opacity = '.85';
     title.style.marginBottom = '4px';
@@ -462,7 +462,7 @@ export class CombinedSettingsPage {
     return row;
   }
 
-  // 文本相似度：max_distance (0-20 整数) 滑块 + 击杀数(edit_distance)
+  // 编辑距离合并阈值：max_distance (0-20 整数) 滑块 + 击杀数(edit_distance)
   _createEditDistanceRow() {
     const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
     let current = settings?.get?.('max_distance');
@@ -480,7 +480,7 @@ export class CombinedSettingsPage {
     row.style.textAlign = 'center';
 
     const title = document.createElement('span');
-    title.textContent = '文本相似度';
+    title.textContent = '编辑距离合并阈值';
     title.style.fontSize = '12px';
     title.style.opacity = '.85';
     title.style.userSelect = 'none';
@@ -554,7 +554,7 @@ export class CombinedSettingsPage {
     return row;
   }
 
-  // 余弦相似度：max_cosine (0-100 整数) 滑块 + 击杀数(vector)
+  // 词频向量合并阈值：max_cosine (0-100 整数) 滑块 + 击杀数(vector)
   _createVectorRow() {
     const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
     let current = settings?.get?.('max_cosine');
@@ -572,7 +572,7 @@ export class CombinedSettingsPage {
     row.style.textAlign = 'center';
 
     const title = document.createElement('span');
-    title.textContent = '余弦相似度';
+    title.textContent = '词频向量合并阈值';
     title.style.fontSize = '12px';
     title.style.opacity = '.85';
     title.style.userSelect = 'none';
@@ -588,7 +588,7 @@ export class CombinedSettingsPage {
     slider.style.accentColor = '#3fa9ff';
 
     const valSpan = document.createElement('span');
-    valSpan.textContent = String(current);
+    valSpan.textContent = String(current) + ' %';
     valSpan.style.minWidth = '0';
     valSpan.style.textAlign = 'center';
     valSpan.style.fontSize = '12px';
@@ -633,8 +633,8 @@ export class CombinedSettingsPage {
       this.logger?.info?.('[CombineSettings] max_cosine ->', current, 'from', src);
     };
 
-    slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value; });
-    slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value; });
+    slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value + " %"; });
+    slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value + " %"; });
     row.addEventListener('click', () => slider.focus());
 
     row.appendChild(title);

@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T16:35:56.846Z
+ * 构建时间: 2025-09-02T21:16:05.441Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -1714,7 +1714,7 @@
         leftWrap.style.flex = '0 0 auto';
 
         const title = document.createElement('span');
-        title.textContent = '拼音相似度匹配';
+        title.textContent = '识别谐音弹幕';
         title.style.fontSize = '12px';
         title.style.opacity = '.85';
         title.style.marginBottom = '4px';
@@ -1838,7 +1838,7 @@
         return row;
       }
 
-      // 文本相似度：max_distance (0-20 整数) 滑块 + 击杀数(edit_distance)
+      // 编辑距离合并阈值：max_distance (0-20 整数) 滑块 + 击杀数(edit_distance)
       _createEditDistanceRow() {
         const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
         let current = settings?.get?.('max_distance');
@@ -1856,7 +1856,7 @@
         row.style.textAlign = 'center';
 
         const title = document.createElement('span');
-        title.textContent = '文本相似度';
+        title.textContent = '编辑距离合并阈值';
         title.style.fontSize = '12px';
         title.style.opacity = '.85';
         title.style.userSelect = 'none';
@@ -1930,7 +1930,7 @@
         return row;
       }
 
-      // 余弦相似度：max_cosine (0-100 整数) 滑块 + 击杀数(vector)
+      // 词频向量合并阈值：max_cosine (0-100 整数) 滑块 + 击杀数(vector)
       _createVectorRow() {
         const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
         let current = settings?.get?.('max_cosine');
@@ -1948,7 +1948,7 @@
         row.style.textAlign = 'center';
 
         const title = document.createElement('span');
-        title.textContent = '余弦相似度';
+        title.textContent = '词频向量合并阈值';
         title.style.fontSize = '12px';
         title.style.opacity = '.85';
         title.style.userSelect = 'none';
@@ -1964,7 +1964,7 @@
         slider.style.accentColor = '#3fa9ff';
 
         const valSpan = document.createElement('span');
-        valSpan.textContent = String(current);
+        valSpan.textContent = String(current) + ' %';
         valSpan.style.minWidth = '0';
         valSpan.style.textAlign = 'center';
         valSpan.style.fontSize = '12px';
@@ -2009,8 +2009,8 @@
           this.logger?.info?.('[CombineSettings] max_cosine ->', current, 'from', src);
         };
 
-        slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value; });
-        slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value; });
+        slider.addEventListener('input', () => { applyValue(slider.value, 'input'); valSpan.textContent = slider.value + " %"; });
+        slider.addEventListener('change', () => { applyValue(slider.value, 'change'); valSpan.textContent = slider.value + " %"; });
         row.addEventListener('click', () => slider.focus());
 
         row.appendChild(title);
@@ -3819,6 +3819,7 @@
         constructor(opts = {}) {
             this.logger = opts.logger || null;
             this._panel = null;
+            this._modalHost = null;
             this._headerBox = null;
             this._imgEl = null;
             this._titleValEl = null;
@@ -3847,6 +3848,12 @@
             panel.dataset.key = this.getKey();
             this._panel = panel;
 
+            // 统一弹窗宿主（固定在面板内，阻止滚动）
+            const modalHost = document.createElement('div');
+            modalHost.style.position = 'relative';
+            modalHost.style.zIndex = '0';
+            this._modalHost = modalHost;
+
             // 顶部信息框
             const header = document.createElement('div');
             header.style.display = 'flex';
@@ -3868,12 +3875,15 @@
             leftWrap.style.borderRadius = '6px';
             leftWrap.style.overflow = 'hidden';
             leftWrap.style.background = 'rgba(0,0,0,.2)';
+        // 不随右侧内容拉伸高度，保持按图片自身高度，但在父容器中垂直居中
+        leftWrap.style.alignSelf = 'center';
             const img = document.createElement('img');
             img.alt = '海报';
             img.style.display = 'block';
+            // 宽度占列的 100%，高度自适应以保持长宽比
             img.style.width = '100%';
-            img.style.height = '100%';
-            img.style.objectFit = 'cover';
+            img.style.height = 'auto';
+            try { img.style.objectFit = 'contain'; } catch (_) { }
             img.style.background = 'rgba(0,0,0,.3)';
             img.referrerPolicy = 'no-referrer';
             this._imgEl = img;
@@ -3954,9 +3964,13 @@
             offsetValueWrap.appendChild(offsetInput);
             offsetValueWrap.appendChild(updateBtn);
             const offsetLine = makeLine('集数偏移:', offsetValueWrap);
-            // ep_id 展示（位于集数偏移下方）
+            // ep_id 展示
             const epIdNode = document.createElement('span');
-            epIdNode.textContent = '--';
+            try {
+                const gInit2 = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                const eid0 = gInit2?.danmakuData?.episodeId;
+                epIdNode.textContent = (eid0 === undefined || eid0 === null || eid0 === '') ? '--' : String(eid0);
+            } catch (_) { epIdNode.textContent = '--'; }
             const epIdLine = makeLine('ep_id:', epIdNode);
             this._epIdValEl = epIdNode;
             const onOffsetChange = () => {
@@ -4005,7 +4019,7 @@
                         dataType: 'json'
                     });
                     const p = saveIfAutoOn(this.logger);
-                    // 根据返回 Promise 结果刷新“本集标题”
+                    // 根据返回 Promise 结果刷新“本集标题”和 ep_id
                     try {
                         if (p && typeof p.then === 'function') {
                             p.then(val => {
@@ -4014,6 +4028,8 @@
                                         const g2 = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
                                         const newEpTitle = g2?.danmakuData?.episodeTitle || '--';
                                         if (this._episodeTitleEl) this._episodeTitleEl.textContent = newEpTitle;
+                                        const newEpId = g2?.danmakuData?.episodeId;
+                                        if (this._epIdValEl) this._epIdValEl.textContent = (newEpId === undefined || newEpId === null || newEpId === '') ? '--' : String(newEpId);
                                     } catch (_) { }
                                 }
                             }).catch(() => { });
@@ -4030,9 +4046,10 @@
             this._unbinds.push(() => { try { updateBtn.removeEventListener('click', onUpdateClick); } catch (_) { } });
 
             rightWrap.appendChild(titleLine.line);
-            rightWrap.appendChild(epTitleLine.line);
             rightWrap.appendChild(idLine.line);
             rightWrap.appendChild(offsetLine.line);
+            // 将“本集标题”和“ep_id”移动到“集数偏移”下方，且“本集标题”在“ep_id”之上
+            rightWrap.appendChild(epTitleLine.line);
             rightWrap.appendChild(epIdLine.line);
             header.appendChild(rightWrap);
 
@@ -4058,14 +4075,18 @@
             deleteBar.style.cursor = 'pointer';
             deleteBar.style.userSelect = 'none';
             deleteBar.style.transition = 'filter .12s ease, opacity .12s ease';
-            deleteBar.addEventListener('mouseenter', () => { try { deleteBar.style.filter = 'brightness(1.05)'; } catch (_) {} });
-            deleteBar.addEventListener('mouseleave', () => { try { deleteBar.style.filter = 'none'; } catch (_) {} });
+            deleteBar.addEventListener('mouseenter', () => { try { deleteBar.style.filter = 'brightness(1.05)'; } catch (_) { } });
+            deleteBar.addEventListener('mouseleave', () => { try { deleteBar.style.filter = 'none'; } catch (_) { } });
 
             const onDeleteClick = async () => {
                 try {
-                    // 二次确认
-                    // eslint-disable-next-line no-alert
-                    const ok = window.confirm?.('确认删除已匹配结果？此操作将清空信息栏数据。');
+                    // 统一样式确认框
+                    const ok = await this._showConfirm({
+                        title: '确认删除',
+                        message: '确认删除已匹配结果？此操作将清空信息栏数据。',
+                        confirmText: '删除',
+                        cancelText: '取消'
+                    });
                     if (!ok) return;
                     if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) {
                         this.logger?.warn?.('[Search] 无法删除：缺少 ApiClient');
@@ -4222,14 +4243,142 @@
             this._resultsWrap = resultsWrap;
             list.appendChild(resultsWrap);
 
+            // modalHost 放顶部，承载居中弹窗层
+            panel.appendChild(this._modalHost);
             panel.appendChild(list);
             this._listWrap = list;
             // 绑定搜索事件
             this._bindSearchActions();
 
-            // 异步获取匹配数据与 ep_id
-            Promise.resolve().then(() => { this._fetchMatchData(); this._fetchEpId(); });
+            // 异步获取匹配数据，并从全局应用 ep_id
+            Promise.resolve().then(() => { this._fetchMatchData(); this._applyEpIdFromGlobal(); });
             return panel;
+        }
+
+        _ensureModalLayer() {
+            // 创建覆盖层和容器，固定定位在 panel 内部中央
+            if (!this._panel) return null;
+            let overlay = this._panel.querySelector?.('.danmaku-modal-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'danmaku-modal-overlay';
+                overlay.style.position = 'fixed';
+                overlay.style.inset = '0';
+                overlay.style.display = 'none';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+                overlay.style.background = 'rgba(0,0,0,.45)';
+                overlay.style.zIndex = '9999';
+                overlay.style.backdropFilter = 'blur(2px)';
+                this._panel.appendChild(overlay);
+            }
+            return overlay;
+        }
+
+        _showConfirm({ title = '确认', message = '确定执行该操作吗？', confirmText = '确定', cancelText = '取消' } = {}) {
+            return new Promise((resolve) => {
+                try {
+                    const overlay = this._ensureModalLayer();
+                    if (!overlay) { resolve(window.confirm?.(message)); return; }
+
+                    overlay.innerHTML = '';
+                    const wrap = document.createElement('div');
+                    wrap.style.maxWidth = '420px';
+                    wrap.style.width = 'min(90vw, 420px)';
+                    wrap.style.background = 'rgba(30,30,30,.98)';
+                    wrap.style.border = '1px solid rgba(255,255,255,.16)';
+                    wrap.style.borderRadius = '10px';
+                    wrap.style.boxShadow = '0 10px 30px rgba(0,0,0,.4)';
+                    wrap.style.padding = '14px 16px 12px';
+                    wrap.style.color = '#fff';
+                    wrap.style.transform = 'scale(.96)';
+                    wrap.style.opacity = '0';
+                    wrap.style.transition = 'transform .15s ease, opacity .15s ease';
+
+                    const h = document.createElement('div');
+                    h.textContent = title;
+                    h.style.fontSize = '15px';
+                    h.style.fontWeight = '700';
+                    h.style.marginBottom = '8px';
+
+                    const msg = document.createElement('div');
+                    msg.textContent = message;
+                    msg.style.fontSize = '13px';
+                    msg.style.opacity = '.92';
+                    msg.style.lineHeight = '1.6';
+                    msg.style.marginBottom = '12px';
+
+                    const btnRow = document.createElement('div');
+                    btnRow.style.display = 'flex';
+                    btnRow.style.justifyContent = 'flex-end';
+                    btnRow.style.gap = '8px';
+
+                    const cancel = document.createElement('button');
+                    cancel.type = 'button';
+                    cancel.textContent = cancelText;
+                    cancel.style.padding = '6px 12px';
+                    cancel.style.fontSize = '12px';
+                    cancel.style.borderRadius = '6px';
+                    cancel.style.border = '1px solid rgba(255,255,255,.20)';
+                    cancel.style.background = 'rgba(255,255,255,.08)';
+                    cancel.style.color = '#fff';
+
+                    const ok = document.createElement('button');
+                    ok.type = 'button';
+                    ok.textContent = confirmText;
+                    ok.style.padding = '6px 12px';
+                    ok.style.fontSize = '12px';
+                    ok.style.borderRadius = '6px';
+                    ok.style.border = '1px solid rgba(76,175,80,.7)';
+                    ok.style.background = 'rgba(76,175,80,.25)';
+                    ok.style.color = '#c8f0c8';
+
+                    btnRow.appendChild(cancel);
+                    btnRow.appendChild(ok);
+
+                    wrap.appendChild(h);
+                    wrap.appendChild(msg);
+                    wrap.appendChild(btnRow);
+                    overlay.appendChild(wrap);
+
+                    let prevOverflow = null;
+                    try { prevOverflow = document.body && document.body.style ? document.body.style.overflow : null; } catch (_) { }
+
+                    const close = (val) => {
+                        try {
+                            wrap.style.transform = 'scale(.96)';
+                            wrap.style.opacity = '0';
+                            setTimeout(() => {
+                                overlay.style.display = 'none';
+                                overlay.innerHTML = '';
+                                // 恢复滚动
+                                try { if (document.body && document.body.style) document.body.style.overflow = prevOverflow || ''; } catch (_) { }
+                                try { document.removeEventListener('keydown', onKey); } catch (_) { }
+                                resolve(val);
+                            }, 140);
+                        } catch (_) { overlay.style.display = 'none'; resolve(val); }
+                    };
+
+                    const onKey = (e) => {
+                        if (e.key === 'Escape') { e.preventDefault?.(); close(false); }
+                        if (e.key === 'Enter') { e.preventDefault?.(); close(true); }
+                    };
+
+                    cancel.addEventListener('click', () => close(false));
+                    ok.addEventListener('click', () => close(true));
+                    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+                    document.addEventListener('keydown', onKey);
+
+                    overlay.style.display = 'flex';
+                    // 禁止背景滚动
+                    try { if (document.body && document.body.style) document.body.style.overflow = 'hidden'; } catch (_) { }
+                    // 动画进入
+                    requestAnimationFrame(() => {
+                        wrap.style.transform = 'scale(1)';
+                        wrap.style.opacity = '1';
+                    });
+                } catch (_) { resolve(false); }
+            });
         }
 
         _bindSearchActions() {
@@ -4240,6 +4389,14 @@
             this._searchBtn.addEventListener('click', doSearch);
             this._unbinds.push(() => { try { this._searchInput.removeEventListener('keydown', onKeyDown); } catch (_) { } });
             this._unbinds.push(() => { try { this._searchBtn.removeEventListener('click', doSearch); } catch (_) { } });
+        }
+
+        _applyEpIdFromGlobal() {
+            try {
+                const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+                const newEpId = g?.danmakuData?.episodeId;
+                if (this._epIdValEl) this._epIdValEl.textContent = (newEpId === undefined || newEpId === null || newEpId === '') ? '--' : String(newEpId);
+            } catch (_) { try { if (this._epIdValEl) this._epIdValEl.textContent = '--'; } catch (__) { } }
         }
 
         async _doSearch() {
@@ -4520,9 +4677,25 @@
 
                 const aidText = document.createElement('span');
                 const curAnimeId = item?.animeId ?? item?.id ?? '--';
-                aidText.textContent = `将 ${curAnimeId} 作为本季id offset:`;
+                aidText.textContent = `将 ${curAnimeId} 作为本季id,集数偏移:`;
                 aidText.style.fontSize = '12px';
                 aidText.style.opacity = '.95';
+
+                // 左侧编号块（样式与下方分集行保持一致）
+                const left = document.createElement('div');
+                left.style.flex = '0 0 auto';
+                left.style.display = 'flex';
+                left.style.alignItems = 'center';
+                left.style.justifyContent = 'center';
+                left.style.padding = '0 8px';
+                const num = document.createElement('div');
+                const aidStr = (curAnimeId ?? '').toString();
+                num.textContent = aidStr.toUpperCase();
+                num.style.fontSize = '18px';
+                num.style.fontWeight = '700';
+                num.style.letterSpacing = '.5px';
+                num.style.opacity = '.95';
+                left.appendChild(num);
 
                 const seasonOffsetInput = document.createElement('input');
                 seasonOffsetInput.type = 'text';
@@ -4535,21 +4708,26 @@
                 seasonOffsetInput.min = '-9999';
                 seasonOffsetInput.max = '9999';
 
+                // 原“确认”按钮删除：仍创建一个离屏按钮对象以复用原有逻辑，但不插入 DOM
                 const confirmBtn = document.createElement('button');
                 confirmBtn.type = 'button';
                 confirmBtn.textContent = '确认';
-                confirmBtn.style.border = '1px solid rgba(255,255,255,.28)';
-                confirmBtn.style.background = 'rgba(255,255,255,.10)';
-                confirmBtn.style.color = '#fff';
-                confirmBtn.style.borderRadius = '6px';
-                confirmBtn.style.fontSize = '12px';
-                confirmBtn.style.padding = '6px 10px';
-                confirmBtn.style.cursor = 'pointer';
-                confirmBtn.style.whiteSpace = 'nowrap';
 
-                actionBar.appendChild(aidText);
-                actionBar.appendChild(seasonOffsetInput);
-                actionBar.appendChild(confirmBtn);
+                // 右侧容器，承载文案与输入框，保证布局与分集行类似
+                const right = document.createElement('div');
+                right.style.flex = '1 1 auto';
+                right.style.display = 'flex';
+                right.style.alignItems = 'center';
+                right.style.gap = '10px';
+                right.appendChild(aidText);
+                right.appendChild(seasonOffsetInput);
+
+                actionBar.appendChild(left);
+                actionBar.appendChild(right);
+                // actionBar 可点击以提交
+                actionBar.style.cursor = 'pointer';
+                actionBar.addEventListener('mouseenter', () => { try { actionBar.style.filter = 'brightness(1.02)'; } catch (_) { } });
+                actionBar.addEventListener('mouseleave', () => { try { actionBar.style.filter = ''; } catch (_) { } });
                 this._detailWrap.appendChild(actionBar);
 
                 const onConfirm = async () => {
@@ -4609,7 +4787,7 @@
                             };
                         } catch (_) { }
 
-                        // 触发自动保存后的刷新“本集标题”
+                        // 触发自动保存后的刷新“本集标题”和 ep_id
                         try {
                             const p = saveIfAutoOn(this.logger);
                             if (p && typeof p.then === 'function') {
@@ -4619,6 +4797,8 @@
                                             const g3 = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
                                             const newEpTitle = g3?.danmakuData?.episodeTitle || '--';
                                             if (this._episodeTitleEl) this._episodeTitleEl.textContent = newEpTitle;
+                                            const newEpId = g3?.danmakuData?.episodeId;
+                                            if (this._epIdValEl) this._epIdValEl.textContent = (newEpId === undefined || newEpId === null || newEpId === '') ? '--' : String(newEpId);
                                         } catch (_) { }
                                     }
                                 }).catch(() => { });
@@ -4632,8 +4812,22 @@
                         try { confirmBtn.disabled = false; confirmBtn.textContent = '确认'; } catch (_) { }
                     }
                 };
-                confirmBtn.addEventListener('click', onConfirm);
-                this._detailUnbinds.push(() => { try { confirmBtn.removeEventListener('click', onConfirm); } catch (_) { } });
+                // 点击表单本体触发确认框后执行原逻辑；点击输入框本身不触发
+                const onActionBarClick = async (e) => {
+                    try {
+                        if (e && (e.target === seasonOffsetInput || seasonOffsetInput.contains?.(e.target))) return;
+                        const ok = await this._showConfirm({
+                            title: '设为本季',
+                            message: '确认将该 bangumi 设为本季，并应用当前 offset 吗？',
+                            confirmText: '确定',
+                            cancelText: '取消'
+                        });
+                        if (!ok) return;
+                    } catch (_) { }
+                    onConfirm();
+                };
+                actionBar.addEventListener('click', onActionBarClick);
+                this._detailUnbinds.push(() => { try { actionBar.removeEventListener('click', onActionBarClick); } catch (_) { } });
 
                 // Episodes 容器
                 const episodesWrap = document.createElement('div');
@@ -4860,20 +5054,12 @@
                             right.appendChild(etitle);
 
                             // 右侧操作按钮：设置单集ID
+                            // 删除每行按钮：仍保留一个离屏按钮对象以复用逻辑，但不插入 DOM
                             const actionWrap = document.createElement('div');
                             actionWrap.style.flex = '0 0 auto';
                             const setBtn = document.createElement('button');
                             setBtn.type = 'button';
                             setBtn.textContent = '设置单集ID';
-                            setBtn.style.border = '1px solid rgba(255,255,255,.28)';
-                            setBtn.style.background = 'rgba(255,255,255,.10)';
-                            setBtn.style.color = '#fff';
-                            setBtn.style.borderRadius = '6px';
-                            setBtn.style.fontSize = '12px';
-                            setBtn.style.padding = '6px 10px';
-                            setBtn.style.cursor = 'pointer';
-                            setBtn.style.whiteSpace = 'nowrap';
-                            actionWrap.appendChild(setBtn);
 
                             const onSet = async () => {
                                 try {
@@ -4889,6 +5075,11 @@
                                         return;
                                     }
                                     const url = ApiClient.getUrl(`danmaku/set_id?item_id=${encodeURIComponent(String(item_id))}&danmaku_id=${encodeURIComponent(String(danmaku_id))}`);
+                                    // 行忙碌态
+                                    const prevOpacity = row.style.opacity;
+                                    const prevPointer = row.style.pointerEvents;
+                                    row.style.opacity = '0.85';
+                                    row.style.pointerEvents = 'none';
                                     setBtn.disabled = true;
                                     const prev = setBtn.textContent; setBtn.textContent = '设置中…';
                                     // 无返回体，避免解析 JSON 导致挂起
@@ -4918,15 +5109,35 @@
                                 } catch (e) {
                                     this.logger?.warn?.('[Search] 设置单集ID失败', e);
                                 } finally {
-                                    try { setBtn.disabled = false; } catch (_) { }
+                                    try {
+                                        setBtn.disabled = false;
+                                        row.style.opacity = prevOpacity;
+                                        row.style.pointerEvents = prevPointer;
+                                    } catch (_) { }
                                 }
                             };
-                            setBtn.addEventListener('click', onSet);
-                            this._detailUnbinds.push(() => { try { setBtn.removeEventListener('click', onSet); } catch (_) { } });
+                            // 点击整行触发确认后执行原逻辑
+                            row.style.cursor = 'pointer';
+                            row.addEventListener('mouseenter', () => { try { row.style.filter = 'brightness(1.02)'; } catch (_) { } });
+                            row.addEventListener('mouseleave', () => { try { row.style.filter = ''; } catch (_) { } });
+                            const onRowClick = async () => {
+                                try {
+                                    const ok = await this._showConfirm({
+                                        title: '设置单集ID',
+                                        message: '确认将该分集设置为当前单集ID吗？',
+                                        confirmText: '确定',
+                                        cancelText: '取消'
+                                    });
+                                    if (!ok) return;
+                                } catch (_) { }
+                                onSet();
+                            };
+                            row.addEventListener('click', onRowClick);
+                            this._detailUnbinds.push(() => { try { row.removeEventListener('click', onRowClick); } catch (_) { } });
 
                             row.appendChild(left);
                             row.appendChild(right);
-                            row.appendChild(actionWrap);
+                            // 不再追加每行的按钮容器，实现整行可点击
                             episodesWrap.appendChild(row);
                         }
                     }
@@ -4946,7 +5157,7 @@
             }
         }
 
-        // 取消随机背景取色逻辑，保持透明背景
+        // 透明背景
 
         async _fetchMatchData() {
             try {
@@ -5014,29 +5225,7 @@
             } catch (_) { }
         }
 
-        async _fetchEpId() {
-            try {
-                const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
-                const item_id = g.getMediaId?.();
-                if (!item_id) { try { if (this._epIdValEl) this._epIdValEl.textContent = '--'; } catch (_) { } return; }
-                if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) { return; }
-                const url = ApiClient.getUrl(`danmaku/get_id?item_id=${encodeURIComponent(item_id)}`);
-                const res = await ApiClient.ajax({ type: 'GET', url, dataType: 'json' });
-                this.logger?.info?.('[Search] 获取 ep_id', res);
-                let epId = null;
-                if (res && typeof res === 'object') {
-                    epId = res.ep_id ?? res.epId ?? res.id ?? null;
-                } else if (typeof res === 'string' || typeof res === 'number') {
-                    epId = res;
-                }
-                if (epId === undefined || epId === null || epId === '') epId = '--';
-                try { if (this._epIdValEl) this._epIdValEl.textContent = String(epId); } catch (_) { }
-                try { g.danmakuEpId = epId; } catch (_) { }
-            } catch (e) {
-                this.logger?.warn?.('[Search] 获取 ep_id 失败', e);
-                try { if (this._epIdValEl) this._epIdValEl.textContent = '--'; } catch (_) { }
-            }
-        }
+        async _fetchEpId() { this._applyEpIdFromGlobal(); }
 
         destroy() {
             try { this._exitDetail(); } catch (_) { }
@@ -7453,7 +7642,7 @@
         } catch (_) { /* ignore */ }
 
         // 优先从 Cache Storage 读取；否则网络获取，并将结果写入缓存
-        var p = (async function(){
+        var p = (async function () {
           try {
             var useCaches = (typeof caches !== 'undefined' && caches.open);
             var arrBuf = null;
@@ -7467,7 +7656,7 @@
                   arrBuf = await hit.arrayBuffer();
                   typeHint = hit.headers.get('content-type') || typeHint;
                 }
-              } catch (_) {}
+              } catch (_) { }
             }
 
             if (!arrBuf) {
@@ -7479,20 +7668,20 @@
                   var c2 = await caches.open('jfdanmaku-fonts-v1');
                   await c2.put(new Request(absUrl, { credentials: 'same-origin', mode: 'cors' }), resp.clone());
                 }
-              } catch (_) {}
+              } catch (_) { }
               typeHint = resp.headers.get('content-type') || typeHint;
               arrBuf = await resp.arrayBuffer();
             }
 
-      // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
-      var blob = new Blob([arrBuf], { type: typeHint });
-      var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
-      var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
-      var loaded = await ff.load();
-            try { document.fonts.add(loaded); } catch (_) {}
-      try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) {}
+            // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
+            var blob = new Blob([arrBuf], { type: typeHint });
+            var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
+            var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+            var loaded = await ff.load();
+            try { document.fonts.add(loaded); } catch (_) { }
+            try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) { }
             cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-            try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) {}
+            try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) { }
             return family;
           } catch (err) {
             cache[urlPath] = { status: 'failed', error: String(err) };
@@ -7507,7 +7696,7 @@
     }
 
     // 将加载器暴露到全局，便于设置页等直接调用
-    try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) {}
+    try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
 
     /**
      * 若 style.font 中包含 /danmaku/font/ 路径，则在可用时替换为已加载的家族名；失败则替换为 sans-serif。
@@ -7526,10 +7715,10 @@
           style.font = style.font.replace(url, "'" + fam + "'");
           return;
         }
-      // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
-      style.font = style.font.replace(url, 'sans-serif');
-      // 异步触发加载；后续新建弹幕会拿到已加载的家族名
-      ensureRemoteFontLoaded(url);
+        // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
+        style.font = style.font.replace(url, 'sans-serif');
+        // 异步触发加载；后续新建弹幕会拿到已加载的家族名
+        ensureRemoteFontLoaded(url);
       } catch (_) { /* ignore */ }
     }
 
@@ -7797,7 +7986,7 @@
      * @returns {number} 插入位置的索引
      */
     function binsearch(arr, prop, key) {
-      try { console.log(LOG_PREFIX, 'binsearch: start', { length: arr && arr.length, prop: prop, key: key }); } catch (e) {}
+      try { console.log(LOG_PREFIX, 'binsearch: start', { length: arr && arr.length, prop: prop, key: key }); } catch (e) { }
       // 返回插入位置 (0..arr.length)
       var left = 0;
       var right = arr.length; // 区间: [left, right)
@@ -7811,7 +8000,7 @@
         }
       }
       // left 即为插入点
-      try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) {}
+      try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) { }
       return left;
     }
     /**
@@ -8184,11 +8373,11 @@
                   if (rc.mode === 'top' || rc.mode === 'bottom') rc.x = (this._.width - rc.width) >> 1;
                   this._.engine.render(this._.stage, rc);
                 }
-              } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) {} }
+              } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) { } }
             }
           }
         } catch (e) {
-          try { console.warn('[Danmaku] seek backfill error', e); } catch (_) {}
+          try { console.warn('[Danmaku] seek backfill error', e); } catch (_) { }
         }
       }
       return this;
@@ -8305,9 +8494,9 @@
         var g = __getGlobal();
         var ff = g?.danmakuSettings?.get?.('font_family');
         if (typeof ff === 'string' && ff.indexOf('/danmaku/font/') === 0) {
-          ensureRemoteFontLoaded(ff).then(function(fam){
+          ensureRemoteFontLoaded(ff).then(function (fam) {
             if (fam) {
-              try { (g.danmakuRenderer?.container || this.container).style.fontFamily = "'" + fam + "', sans-serif"; } catch (_) {}
+              try { (g.danmakuRenderer?.container || this.container).style.fontFamily = "'" + fam + "', sans-serif"; } catch (_) { }
             }
           }.bind(this));
         }
@@ -8351,12 +8540,12 @@
 
       // 移除右键菜单监听
       if (this._.copyMenuHandlers) {
-        try { document.removeEventListener('contextmenu', this._.copyMenuHandlers.onContext, true); } catch (_) {}
-        try { document.removeEventListener('click', this._.copyMenuHandlers.onDocClick, true); } catch (_) {}
-        try { document.removeEventListener('scroll', this._.copyMenuHandlers.onScroll, true); } catch (_) {}
+        try { document.removeEventListener('contextmenu', this._.copyMenuHandlers.onContext, true); } catch (_) { }
+        try { document.removeEventListener('click', this._.copyMenuHandlers.onDocClick, true); } catch (_) { }
+        try { document.removeEventListener('scroll', this._.copyMenuHandlers.onScroll, true); } catch (_) { }
       }
       if (this._.copyMenu && this._.copyMenu.parentElement) {
-        try { this._.copyMenu.parentElement.removeChild(this._.copyMenu); } catch (_) {}
+        try { this._.copyMenu.parentElement.removeChild(this._.copyMenu); } catch (_) { }
       }
 
       // 清空所有属性
@@ -8543,7 +8732,7 @@
     };
 
     // 对实例暴露字体加载器（语义代理）
-    Danmaku.prototype.ensureRemoteFontLoaded = function(url){
+    Danmaku.prototype.ensureRemoteFontLoaded = function (url) {
       return ensureRemoteFontLoaded(url);
     };
 
@@ -8599,7 +8788,7 @@
       preview.style.whiteSpace = 'pre-wrap';
       preview.style.borderBottom = '1px solid rgba(255,255,255,0.08)';
       preview.style.boxSizing = 'border-box';
-      preview.setAttribute('data-danmaku-preview','');
+      preview.setAttribute('data-danmaku-preview', '');
       menu.appendChild(preview);
 
       function addItem(label, onClick) {
@@ -8608,15 +8797,15 @@
         item.style.padding = '4px 12px';
         item.style.cursor = 'pointer';
         item.style.whiteSpace = 'nowrap';
-        item.addEventListener('mouseenter', function(){ item.style.background = 'rgba(255,255,255,0.08)'; });
-        item.addEventListener('mouseleave', function(){ item.style.background = 'transparent'; });
-        item.addEventListener('click', function(e){
+        item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,255,255,0.08)'; });
+        item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
+        item.addEventListener('click', function (e) {
           e.stopPropagation();
-          try { onClick(); } catch(_) {}
+          try { onClick(); } catch (_) { }
           hideMenu();
         });
         // 备用：提供 mousedown 触发兼容（不再打印日志）
-        item.addEventListener('mousedown', function(e){ if (e.button !== 0) return; });
+        item.addEventListener('mousedown', function (e) { if (e.button !== 0) return; });
         menu.appendChild(item);
       }
 
@@ -8627,15 +8816,15 @@
         currentCmt = null;
       }
 
-      addItem('复制', function(){
+      addItem('复制', function () {
         if (!currentCmt) return;
         var text = currentCmt.text || '';
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             var p = navigator.clipboard.writeText(text);
             if (p && typeof p.then === 'function') {
-              p.then(function(){
-              }).catch(function(err){
+              p.then(function () {
+              }).catch(function (err) {
                 // 降级时输出一次警告
                 console.warn('[Danmaku] copy async failed, fallback to execCommand', err);
                 fallbackCopy(text);
@@ -8646,7 +8835,7 @@
           }
         } catch (err) {
           console.warn('[Danmaku] copy threw, fallback', err);
-          try { fallbackCopy(text); } catch(_) {}
+          try { fallbackCopy(text); } catch (_) { }
         }
       });
 
@@ -8671,15 +8860,15 @@
         var y = e.clientY - rect.top;
         if (x < 0 || y < 0 || x > rect.width || y > rect.height) return; // 不在画布区域
         // 进行命中检测
-      var cmt = hitDanmaku.call(that, x, y);
-      if (!cmt) return; // 没有弹幕，不拦截
-      if (menu.style.display === 'block') menu.style.display = 'none';
-      currentCmt = cmt;
-      preview.textContent = cmt.text || '';
-      e.preventDefault();
-      e.stopPropagation();
-      menu.style.display='block';
-      showAt(e.clientX, e.clientY);
+        var cmt = hitDanmaku.call(that, x, y);
+        if (!cmt) return; // 没有弹幕，不拦截
+        if (menu.style.display === 'block') menu.style.display = 'none';
+        currentCmt = cmt;
+        preview.textContent = cmt.text || '';
+        e.preventDefault();
+        e.stopPropagation();
+        menu.style.display = 'block';
+        showAt(e.clientX, e.clientY);
       }
 
       function onScroll() { hideMenu(); }
@@ -8694,17 +8883,17 @@
         try {
           var ta = document.createElement('textarea');
           ta.value = text;
-          ta.style.position='fixed';ta.style.top='-9999px';
+          ta.style.position = 'fixed'; ta.style.top = '-9999px';
           document.body.appendChild(ta); ta.select();
           var ok = false;
-          try { ok = document.execCommand('copy'); } catch(e){ console.warn('[Danmaku] execCommand copy error', e); }
+          try { ok = document.execCommand('copy'); } catch (e) { console.warn('[Danmaku] execCommand copy error', e); }
           document.body.removeChild(ta);
-        } catch(e) { console.warn('[Danmaku] fallback copy failed', e); }
+        } catch (e) { console.warn('[Danmaku] fallback copy failed', e); }
       }
     }
 
     // 暴露为内部方法（如果未来需要外部开关）
-    Danmaku.prototype._setupCopyContextMenu = function(){ setupCopyContextMenu.call(this); };
+    Danmaku.prototype._setupCopyContextMenu = function () { setupCopyContextMenu.call(this); };
 
     /**
      * 原地替换整批弹幕数据，预处理完成后一次性切换，尽量减少可见空窗。
@@ -8714,22 +8903,22 @@
      * @param {boolean} [opt.resetCopyMenu=false] 是否重建右键菜单（一般不需要）
      * @returns {Danmaku} this
      */
-    Danmaku.prototype.replaceComments = function(newComments, opt){
+    Danmaku.prototype.replaceComments = function (newComments, opt) {
       opt = opt || {};
       if (!Array.isArray(newComments)) return this;
       // 拷贝 & 排序 & 标准化（不修改传入数组引用）
       var prepared = newComments.slice();
-      prepared.sort(function(a,b){ return (a.time||0) - (b.time||0); });
-      for (var i=0;i<prepared.length;i++) {
+      prepared.sort(function (a, b) { return (a.time || 0) - (b.time || 0); });
+      for (var i = 0; i < prepared.length; i++) {
         var c = prepared[i];
         c.mode = formatMode(c.mode);
         // 规范 text
-        c.text = (c.text==null? '' : String(c.text));
+        c.text = (c.text == null ? '' : String(c.text));
       }
 
       // 计算当前参考时间
       var media = this.media;
-      var ct = media ? media.currentTime : (now()/1000);
+      var ct = media ? media.currentTime : (now() / 1000);
       var duration = this._.duration || 4;
       var windowStart = ct - duration;
 
@@ -8742,8 +8931,8 @@
       var startIndex = binsearch(prepared, 'time', windowStart) - 1; // bins 返回插入点，前一条可能仍在窗口
       if (startIndex < -1) startIndex = -1;
       var idx = startIndex + 1;
-      var dn = now()/1000;
-      var pbr = media ? (media.playbackRate||1) : 1;
+      var dn = now() / 1000;
+      var pbr = media ? (media.playbackRate || 1) : 1;
       // 临时上下文用于 allocate
       var tempCtx = {
         media: media,
@@ -8755,19 +8944,19 @@
         }
       };
       // 需要字体尺寸用于 createCommentCanvas
-      var fontSize = this._.stage? this._.stage._fontSize : { root: 16, container: 16 };
+      var fontSize = this._.stage ? this._.stage._fontSize : { root: 16, container: 16 };
 
       while (idx < prepared.length) {
         var cm = prepared[idx];
-        var t = cm.time||0;
+        var t = cm.time || 0;
         if (t > ct) break; // 之后都是未来弹幕
         if (t >= windowStart) {
           // 预创建 canvas
-          try { cm.canvas = createCommentCanvas(cm, fontSize); } catch(e) { cm.canvas = null; }
+          try { cm.canvas = createCommentCanvas(cm, fontSize); } catch (e) { cm.canvas = null; }
           // 计算 _utc 以保持位置连贯
           cm._utc = dn - (ct - t);
           // 分配 y
-          try { cm.y = allocate.call(tempCtx, cm); } catch(e) { cm.y = 0; }
+          try { cm.y = allocate.call(tempCtx, cm); } catch (e) { cm.y = 0; }
           visibleList.push(cm);
         }
         idx++;
@@ -8782,11 +8971,11 @@
       var wasVisible = this._.visible;
       // 暂停动画循环（如果在运行）
       if (!wasPaused) {
-        try { caf(this._.requestID); } catch(_) {}
+        try { caf(this._.requestID); } catch (_) { }
         this._.requestID = 0;
-      // 关键修复：原来未将 paused 置回 true，随后调用 play() 会因 this._.paused===false 直接返回，导致动画不再恢复。
-      // 这里显式标记为暂停状态，使 play() 能重新建立 rAF 循环。
-      this._.paused = true;
+        // 关键修复：原来未将 paused 置回 true，随后调用 play() 会因 this._.paused===false 直接返回，导致动画不再恢复。
+        // 这里显式标记为暂停状态，使 play() 能重新建立 rAF 循环。
+        this._.paused = true;
       }
 
       // 原子替换内部结构
@@ -8798,7 +8987,7 @@
       // 清帧并静态渲染一帧（避免空白）
       try {
         this._.engine.framing(this._.stage);
-        for (var ri=0; ri<visibleList.length; ri++) {
+        for (var ri = 0; ri < visibleList.length; ri++) {
           var vc = visibleList[ri];
           // 根据模式计算 x（复制 engine 内逻辑）
           var totalWidth = this._.width + vc.width;
@@ -8808,7 +8997,7 @@
           if (vc.mode === 'top' || vc.mode === 'bottom') vc.x = (this._.width - vc.width) >> 1;
           this._.engine.render(this._.stage, vc);
         }
-      } catch(e) { /* ignore */ }
+      } catch (e) { /* ignore */ }
 
       // 恢复播放状态
       if (wasVisible) {
@@ -8820,7 +9009,7 @@
 
       // 可选重建右键菜单（通常不需要）
       if (opt.resetCopyMenu && this._.enableCopyMenu) {
-        try { this._setupCopyContextMenu(); } catch(_) {}
+        try { this._setupCopyContextMenu(); } catch (_) { }
       }
       return this;
     };

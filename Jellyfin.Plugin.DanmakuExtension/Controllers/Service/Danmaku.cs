@@ -309,7 +309,7 @@ public partial class DanmakuService
 
         // 解析 listJson 并处理弹幕
         List<Pakku.DanmuObject> all = Pakku.ParseStandardJson(content);
-        content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle);
+        content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle, danmakuId);
 
         return new DanmakuResult
         {
@@ -321,7 +321,7 @@ public partial class DanmakuService
     private DanmakuResult BuildEmptyContentResult(DanmakuConfig config, string? episodeTitle)
     {
         var empty = new List<Pakku.DanmuObject>();
-        var content = ProcessDanmakuWithPakku(empty, config, episodeTitle);
+        var content = ProcessDanmakuWithPakku(empty, config, episodeTitle, "0");
         return new DanmakuResult
         {
             Success = true,

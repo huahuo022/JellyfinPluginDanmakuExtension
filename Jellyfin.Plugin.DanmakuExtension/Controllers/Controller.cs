@@ -200,7 +200,39 @@ public class DanmakuController : ControllerBase
 
             var preferredId = _danmakuService.GetPreferredContainerId(itemId);
             var rows = await _danmakuService.DeleteMatchDataByPreferredIdAsync(preferredId);
-            return Ok(new { deleted = rows, preferred_id = preferredId });
+            // 尝试清除该条目上的 ProviderIds["danmaku"]
+            var providerRemoved = false;
+            try
+            {
+                var item = _libraryManager.GetItemById(itemId);
+                var dict = item?.ProviderIds;
+                if (item != null && dict != null && dict.Count > 0)
+                {
+                    string? keyToRemove = null;
+                    foreach (var kv in dict)
+                    {
+                        if (string.Equals(kv.Key, "danmaku", StringComparison.OrdinalIgnoreCase))
+                        {
+                            keyToRemove = kv.Key;
+                            break;
+                        }
+                    }
+
+                    if (keyToRemove != null)
+                    {
+                        dict.Remove(keyToRemove);
+                        item.ProviderIds = dict;
+                        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None);
+                        providerRemoved = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to remove ProviderIds[danmaku] for item {ItemId}", itemId);
+            }
+
+            return Ok(new { deleted = rows, preferred_id = preferredId, provider_id_removed = providerRemoved });
         }
         catch (Exception ex)
         {

@@ -8,7 +8,7 @@ public partial class DanmakuService
     /// <summary>
     /// 使用 Pakku 算法处理弹幕（直接接收 DanmakuConfig）
     /// </summary>
-    public string ProcessDanmakuWithPakku(List<Pakku.DanmuObject> all, DanmakuConfig cfg, string? episodeTitle = null)
+    public string ProcessDanmakuWithPakku(List<Pakku.DanmuObject> all, DanmakuConfig cfg, string? episodeTitle = null, string danmakuId = "0")
     {
         try
         {
@@ -22,6 +22,7 @@ public partial class DanmakuService
             var response = new
             {   
                 episodeTitle = episodeTitle,
+                episodeId = danmakuId,
                 count = representatives.Count,
                 original_total = stats.original_total,
                 removed_count = stats.original_total - representatives.Count,
