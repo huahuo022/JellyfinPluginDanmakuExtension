@@ -517,7 +517,7 @@ public class DanmakuController : ControllerBase
 
     #region POST custom_js
     [HttpPost("custom_js")]
-    // [Authorize(Policy = "RequiresElevation")]
+    [Authorize(Policy = "RequiresElevation")]
     public async Task<IActionResult> SaveCustomJs()
     {
         using var reader = new StreamReader(Request.Body, Encoding.UTF8);
