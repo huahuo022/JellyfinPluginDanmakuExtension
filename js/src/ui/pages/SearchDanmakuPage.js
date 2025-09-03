@@ -1004,8 +1004,8 @@ export class SearchDanmakuPage {
                 try {
                     if (e && (e.target === seasonOffsetInput || seasonOffsetInput.contains?.(e.target))) return;
                     const ok = await this._showConfirm({
-                        title: '设为本季',
-                        message: '确认将该 bangumi 设为本季，并应用当前 offset 吗？',
+                        title: '设置全季',
+                        message: '确认将该 id 设为全季id，并应用当前 offset 吗？',
                         confirmText: '确定',
                         cancelText: '取消'
                     });
@@ -1311,7 +1311,7 @@ export class SearchDanmakuPage {
                             try {
                                 const ok = await this._showConfirm({
                                     title: '设置单集ID',
-                                    message: '确认将该分集设置为当前单集ID吗？',
+                                    message: '确认将该分集设置为当前单集ID吗？(仅本集生效,优先级大于全季ID)',
                                     confirmText: '确定',
                                     cancelText: '取消'
                                 });

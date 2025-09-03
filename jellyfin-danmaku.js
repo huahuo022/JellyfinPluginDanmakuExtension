@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-02T22:23:00.485Z
+ * 构建时间: 2025-09-03T05:18:15.890Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -2632,8 +2632,8 @@
 
         const slider = document.createElement('input');
         slider.type = 'range';
-      slider.min = '0';
-      slider.max = '500';
+        slider.min = '0';
+        slider.max = '500';
         slider.step = '1';
         slider.value = String(current);
         slider.style.width = '140px';
@@ -2664,8 +2664,8 @@
 
         const applyValue = (val, src = 'ui') => {
           let n = parseInt(val, 10);
-      if (!Number.isFinite(n)) n = 0;
-      if (n < 0) n = 0; else if (n > 500) n = 500;
+          if (!Number.isFinite(n)) n = 0;
+          if (n < 0) n = 0; else if (n > 500) n = 500;
           current = n;
           slider.value = String(n);
           try {
@@ -2711,8 +2711,8 @@
 
         const slider = document.createElement('input');
         slider.type = 'range';
-      slider.min = '0';
-      slider.max = '500';
+        slider.min = '0';
+        slider.max = '500';
         slider.step = '1';
         slider.value = String(current);
         slider.style.width = '140px';
@@ -2743,8 +2743,8 @@
 
         const applyValue = (val, src = 'ui') => {
           let n = parseInt(val, 10);
-      if (!Number.isFinite(n)) n = 0;
-      if (n < 0) n = 0; else if (n > 500) n = 500;
+          if (!Number.isFinite(n)) n = 0;
+          if (n < 0) n = 0; else if (n > 500) n = 500;
           current = n;
           slider.value = String(n);
           try {
@@ -2807,11 +2807,10 @@
         list.appendChild(this._createMaxChunkSizeRow());
         list.appendChild(this._createCrossModeRow());
         list.appendChild(this._createNormalizeRow());
-      // 新增 4 项
-      list.appendChild(this._createModeElevationRow());
-      list.appendChild(this._createScrollThresholdRow());
-      list.appendChild(this._createShrinkThresholdRow());
-      list.appendChild(this._createDropThresholdRow());
+        list.appendChild(this._createModeElevationRow());
+        list.appendChild(this._createScrollThresholdRow());
+        list.appendChild(this._createShrinkThresholdRow());
+        list.appendChild(this._createDropThresholdRow());
 
         // 占位：后续将添加具体参数（阈值、白名单等）
         const placeholder = document.createElement('div');
@@ -5156,8 +5155,8 @@
                     try {
                         if (e && (e.target === seasonOffsetInput || seasonOffsetInput.contains?.(e.target))) return;
                         const ok = await this._showConfirm({
-                            title: '设为本季',
-                            message: '确认将该 bangumi 设为本季，并应用当前 offset 吗？',
+                            title: '设置全季',
+                            message: '确认将该 id 设为全季id，并应用当前 offset 吗？',
                             confirmText: '确定',
                             cancelText: '取消'
                         });
@@ -5463,7 +5462,7 @@
                                 try {
                                     const ok = await this._showConfirm({
                                         title: '设置单集ID',
-                                        message: '确认将该分集设置为当前单集ID吗？',
+                                        message: '确认将该分集设置为当前单集ID吗？(仅本集生效,优先级大于全季ID)',
                                         confirmText: '确定',
                                         cancelText: '取消'
                                     });
