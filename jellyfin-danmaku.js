@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-03T05:18:15.890Z
+ * 构建时间: 2025-09-04T09:00:53.309Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -1117,7 +1117,7 @@
 
         const labelLine = document.createElement('div');
         labelLine.className = 'danmaku-setting-row__label';
-        const labelSpan = document.createElement('span'); labelSpan.className = 'danmaku-setting-row__labelText'; labelSpan.textContent = '显示范围 (垂直%)';
+        const labelSpan = document.createElement('span'); labelSpan.className = 'danmaku-setting-row__labelText'; labelSpan.textContent = '显示范围';
         labelLine.appendChild(labelSpan);
         row.appendChild(labelLine);
 
@@ -1176,11 +1176,12 @@
             liveSettings?.set?.('display_top_pct', topVal);
             liveSettings?.set?.('display_bottom_pct', bottomVal);
             // 实时应用到 layer-inner
-            const inner = document.getElementById('danmaku-layer-inner');
+            const inner = document.getElementById('danmaku-layer');
             if (inner && inner.parentElement) {
               inner.style.top = topVal + '%';
               inner.style.height = (bottomVal - topVal) + '%';
             }
+            g.danmakuRenderer?.resize();
             saveIfAutoOn(this.logger);
           } catch (_) { }
           this?.logger?.info?.('[BasicSettings] display_range ->', topVal, bottomVal, 'from', src);
@@ -1237,22 +1238,34 @@
           e.preventDefault();
         });
 
-        // 键盘支持（聚焦手柄后用左右键）
-        [handleTop, handleBottom].forEach((h, idx) => {
-          h.tabIndex = 0;
-          h.addEventListener('keydown', e => {
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-              if (idx === 0) topVal = Math.max(0, topVal - 1); else bottomVal = Math.max(topVal + 1, bottomVal - 1);
-            } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-              if (idx === 0) topVal = Math.min(bottomVal - 1, topVal + 1); else bottomVal = Math.min(100, bottomVal + 1);
-            } else return;
-            clamp(); positionHandles(); updateActiveRange(); applyToSettings.call(selfRef, 'key');
-            e.preventDefault();
-          });
-        });
 
         // activeRange 已在前面插入，无需重复追加
         row.appendChild(wrapper);
+
+        // 悬停该设置区时，高亮视频上的弹幕层为半透明红色，离开后恢复
+        const highlightOn = () => {
+          try {
+            const layer = document.getElementById('danmaku-layer');
+            if (!layer) return;
+            // 记录原始样式以便恢复
+            if (typeof layer.__prevBgColor === 'undefined') layer.__prevBgColor = layer.style.backgroundColor;
+            if (typeof layer.__prevTransition === 'undefined') layer.__prevTransition = layer.style.transition;
+            const hasTransition = (layer.style.transition || '').trim().length > 0;
+            layer.style.transition = hasTransition ? layer.style.transition + ', background-color .15s ease' : 'background-color .15s ease';
+            layer.style.backgroundColor = 'rgba(64, 0, 255, 0.52)';
+          } catch (_) { /* ignore */ }
+        };
+        const highlightOff = () => {
+          try {
+            const layer = document.getElementById('danmaku-layer');
+            if (!layer) return;
+            layer.style.backgroundColor = layer.__prevBgColor || '';
+            if (typeof layer.__prevTransition !== 'undefined') layer.style.transition = layer.__prevTransition || '';
+            try { delete layer.__prevBgColor; delete layer.__prevTransition; } catch (_) { /* ignore */ }
+          } catch (_) { /* ignore */ }
+        };
+        row.addEventListener('mouseenter', highlightOn);
+        row.addEventListener('mouseleave', highlightOff);
 
         const desc = document.createElement('div'); desc.className = 'danmaku-setting-row__desc'; desc.textContent = '限制弹幕垂直显示区域'; row.appendChild(desc);
 
@@ -9598,42 +9611,21 @@
             // 没有渲染器但有图层：继续在现有层上创建实例
         }
 
-        // 复用现有图层或新建
+        // 复用现有图层或新建（改为单层结构，直接作为 Danmaku 容器）
         let layer = existing;
-        let innerWrapper = null;
         if (!layer) {
             layer = document.createElement('div');
             layer.setAttribute('data-danmaku-layer', 'true');
             layer.id = layerId;
-            layer.style.cssText = [
-                'position:absolute',
-                'left:0', 'top:0', 'right:0', 'bottom:0',
-                'width:100%', 'height:100%',
-                'pointer-events:none',
-                'overflow:hidden',
-            ].join(';');
-            try {
-                const opacitySetting = g?.danmakuSettings?.get('opacity');
-                const opacity = Math.min(1, Math.max(0, (opacitySetting ?? 70) / 100));
-                layer.style.opacity = String(opacity);
-            } catch (_) {
-                layer.style.opacity = '0.7';
-            }
             try { parent.appendChild(layer); } catch (_) { }
         }
 
-        // 确保内层 wrapper 存在并应用显示范围
-        innerWrapper = layer.querySelector('#danmaku-layer-inner');
+        // 直接在图层上应用显示范围（取消内层 wrapper）
         const displayTop = (() => { try { return Number(g?.danmakuSettings?.get('display_top_pct')); } catch (_) { return 0; } })();
         const displayBottom = (() => { try { return Number(g?.danmakuSettings?.get('display_bottom_pct')); } catch (_) { return 100; } })();
         const topPct = isFinite(displayTop) ? Math.min(99, Math.max(0, displayTop)) : 0;
         const bottomPct = isFinite(displayBottom) ? Math.min(100, Math.max(topPct + 1, displayBottom)) : 100;
-        if (!innerWrapper) {
-            innerWrapper = document.createElement('div');
-            innerWrapper.id = 'danmaku-layer-inner';
-            layer.appendChild(innerWrapper);
-        }
-        innerWrapper.style.cssText = [
+        layer.style.cssText = [
             'position:absolute',
             `top:${topPct}%`,
             `height:${bottomPct - topPct}%`,
@@ -9642,11 +9634,19 @@
             'width:100%',
             'pointer-events:none'
         ].join(';');
+        // 不把透明度写入 cssText，避免被覆盖；单独设置
+        try {
+            const opacitySetting = g?.danmakuSettings?.get('opacity');
+            const opacity = Math.min(1, Math.max(0, (opacitySetting ?? 70) / 100));
+            layer.style.opacity = String(opacity);
+        } catch (_) {
+            layer.style.opacity = '0.7';
+        }
 
         // 仅在不存在实例时创建，避免反复销毁/重建
         if (!g.danmakuRenderer) {
             const danmakuInstance = g.danmakuRenderer = new Danmaku({
-            container: innerWrapper,
+            container: layer,
             media: videoEl,
             comments: comments,
             speed: (() => {

@@ -266,42 +266,21 @@ export function renderDanmaku(logger = null) {
         // 没有渲染器但有图层：继续在现有层上创建实例
     }
 
-    // 复用现有图层或新建
+    // 复用现有图层或新建（改为单层结构，直接作为 Danmaku 容器）
     let layer = existing;
-    let innerWrapper = null;
     if (!layer) {
         layer = document.createElement('div');
         layer.setAttribute('data-danmaku-layer', 'true');
         layer.id = layerId;
-        layer.style.cssText = [
-            'position:absolute',
-            'left:0', 'top:0', 'right:0', 'bottom:0',
-            'width:100%', 'height:100%',
-            'pointer-events:none',
-            'overflow:hidden',
-        ].join(';');
-        try {
-            const opacitySetting = g?.danmakuSettings?.get('opacity');
-            const opacity = Math.min(1, Math.max(0, (opacitySetting ?? 70) / 100));
-            layer.style.opacity = String(opacity);
-        } catch (_) {
-            layer.style.opacity = '0.7';
-        }
         try { parent.appendChild(layer); } catch (_) { }
     }
 
-    // 确保内层 wrapper 存在并应用显示范围
-    innerWrapper = layer.querySelector('#danmaku-layer-inner');
+    // 直接在图层上应用显示范围（取消内层 wrapper）
     const displayTop = (() => { try { return Number(g?.danmakuSettings?.get('display_top_pct')); } catch (_) { return 0; } })();
     const displayBottom = (() => { try { return Number(g?.danmakuSettings?.get('display_bottom_pct')); } catch (_) { return 100; } })();
     const topPct = isFinite(displayTop) ? Math.min(99, Math.max(0, displayTop)) : 0;
     const bottomPct = isFinite(displayBottom) ? Math.min(100, Math.max(topPct + 1, displayBottom)) : 100;
-    if (!innerWrapper) {
-        innerWrapper = document.createElement('div');
-        innerWrapper.id = 'danmaku-layer-inner';
-        layer.appendChild(innerWrapper);
-    }
-    innerWrapper.style.cssText = [
+    layer.style.cssText = [
         'position:absolute',
         `top:${topPct}%`,
         `height:${bottomPct - topPct}%`,
@@ -310,11 +289,19 @@ export function renderDanmaku(logger = null) {
         'width:100%',
         'pointer-events:none'
     ].join(';');
+    // 不把透明度写入 cssText，避免被覆盖；单独设置
+    try {
+        const opacitySetting = g?.danmakuSettings?.get('opacity');
+        const opacity = Math.min(1, Math.max(0, (opacitySetting ?? 70) / 100));
+        layer.style.opacity = String(opacity);
+    } catch (_) {
+        layer.style.opacity = '0.7';
+    }
 
     // 仅在不存在实例时创建，避免反复销毁/重建
     if (!g.danmakuRenderer) {
         const danmakuInstance = g.danmakuRenderer = new Danmaku({
-        container: innerWrapper,
+        container: layer,
         media: videoEl,
         comments: comments,
         speed: (() => {

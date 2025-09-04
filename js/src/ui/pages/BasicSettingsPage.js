@@ -609,7 +609,7 @@ export class BasicSettingsPage {
 
     const labelLine = document.createElement('div');
     labelLine.className = 'danmaku-setting-row__label';
-    const labelSpan = document.createElement('span'); labelSpan.className = 'danmaku-setting-row__labelText'; labelSpan.textContent = '显示范围 (垂直%)';
+    const labelSpan = document.createElement('span'); labelSpan.className = 'danmaku-setting-row__labelText'; labelSpan.textContent = '显示范围';
     labelLine.appendChild(labelSpan);
     row.appendChild(labelLine);
 
@@ -668,11 +668,12 @@ export class BasicSettingsPage {
         liveSettings?.set?.('display_top_pct', topVal);
         liveSettings?.set?.('display_bottom_pct', bottomVal);
         // 实时应用到 layer-inner
-        const inner = document.getElementById('danmaku-layer-inner');
+        const inner = document.getElementById('danmaku-layer');
         if (inner && inner.parentElement) {
           inner.style.top = topVal + '%';
           inner.style.height = (bottomVal - topVal) + '%';
         }
+        g.danmakuRenderer?.resize();
         saveIfAutoOn(this.logger);
       } catch (_) { }
       this?.logger?.info?.('[BasicSettings] display_range ->', topVal, bottomVal, 'from', src);
@@ -729,22 +730,34 @@ export class BasicSettingsPage {
       e.preventDefault();
     });
 
-    // 键盘支持（聚焦手柄后用左右键）
-    [handleTop, handleBottom].forEach((h, idx) => {
-      h.tabIndex = 0;
-      h.addEventListener('keydown', e => {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-          if (idx === 0) topVal = Math.max(0, topVal - 1); else bottomVal = Math.max(topVal + 1, bottomVal - 1);
-        } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-          if (idx === 0) topVal = Math.min(bottomVal - 1, topVal + 1); else bottomVal = Math.min(100, bottomVal + 1);
-        } else return;
-        clamp(); positionHandles(); updateActiveRange(); applyToSettings.call(selfRef, 'key');
-        e.preventDefault();
-      });
-    });
 
     // activeRange 已在前面插入，无需重复追加
     row.appendChild(wrapper);
+
+    // 悬停该设置区时，高亮视频上的弹幕层为半透明红色，离开后恢复
+    const highlightOn = () => {
+      try {
+        const layer = document.getElementById('danmaku-layer');
+        if (!layer) return;
+        // 记录原始样式以便恢复
+        if (typeof layer.__prevBgColor === 'undefined') layer.__prevBgColor = layer.style.backgroundColor;
+        if (typeof layer.__prevTransition === 'undefined') layer.__prevTransition = layer.style.transition;
+        const hasTransition = (layer.style.transition || '').trim().length > 0;
+        layer.style.transition = hasTransition ? layer.style.transition + ', background-color .15s ease' : 'background-color .15s ease';
+        layer.style.backgroundColor = 'rgba(64, 0, 255, 0.52)';
+      } catch (_) { /* ignore */ }
+    };
+    const highlightOff = () => {
+      try {
+        const layer = document.getElementById('danmaku-layer');
+        if (!layer) return;
+        layer.style.backgroundColor = layer.__prevBgColor || '';
+        if (typeof layer.__prevTransition !== 'undefined') layer.style.transition = layer.__prevTransition || '';
+        try { delete layer.__prevBgColor; delete layer.__prevTransition; } catch (_) { /* ignore */ }
+      } catch (_) { /* ignore */ }
+    };
+    row.addEventListener('mouseenter', highlightOn);
+    row.addEventListener('mouseleave', highlightOff);
 
     const desc = document.createElement('div'); desc.className = 'danmaku-setting-row__desc'; desc.textContent = '限制弹幕垂直显示区域'; row.appendChild(desc);
 
