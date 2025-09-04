@@ -713,6 +713,11 @@ public class DanmakuController : ControllerBase
             {
                 return Unauthorized("User authentication required");
             }
+            // 仅使用 userId-DeviceId 作为配置键，DeviceId 必须存在
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                return BadRequest("DeviceId is required");
+            }
 
             // 读取表单；当载荷为空或不是表单时，使用默认配置以保证可正常初始化
             Microsoft.AspNetCore.Http.IFormCollection? form = null;
@@ -730,8 +735,9 @@ public class DanmakuController : ControllerBase
 
             // 先读取数据库中的完整配置；为空则使用默认，再用表单键进行覆盖（若提供）
             await _danmakuService.InitializeDatabaseAsync();
-            var userIdString = userId.Value.ToString();
-            var savedConfig = await _danmakuService.GetUserConfigAsync(userIdString);
+            // 使用复合键：userId-DeviceId
+            var userKey = $"{userId.Value}-{deviceId}";
+            var savedConfig = await _danmakuService.GetUserConfigAsync(userKey);
 
             var config = savedConfig ?? new DanmakuConfig();
             if (form != null && form.Count > 0)
@@ -740,7 +746,7 @@ public class DanmakuController : ControllerBase
             }
 
             // 保存合并后的配置（直接存对象）
-            await _danmakuService.SaveUserConfigAsync(userIdString, config);
+            await _danmakuService.SaveUserConfigAsync(userKey, config);
 
             // 基础响应对象
             var response = new { saved = true, user_id = userId };
@@ -786,12 +792,15 @@ public class DanmakuController : ControllerBase
         // 获取用户ID，用于读取用户配置
         var authInfo = await _authorizationContext.GetAuthorizationInfo(Request);
         var userId = authInfo?.UserId;
+        var deviceId = authInfo?.DeviceId;
         // 构造配置：优先用户库中保存的配置，没有则使用默认
         DanmakuConfig config;
         await _danmakuService.InitializeDatabaseAsync();
-        if (userId.HasValue)
+        // 仅使用复合键 userId-DeviceId；缺少任一则使用默认配置
+        if (userId.HasValue && !string.IsNullOrWhiteSpace(deviceId))
         {
-            var saved = await _danmakuService.GetUserConfigAsync(userId.Value.ToString());
+            var userKey = $"{userId.Value}-{deviceId}";
+            var saved = await _danmakuService.GetUserConfigAsync(userKey);
             config = saved ?? new DanmakuConfig();
         }
         else

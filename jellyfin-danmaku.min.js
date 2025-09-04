@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-04T09:00:53.309Z
+ * 构建时间: 2025-09-04T12:38:50.286Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
