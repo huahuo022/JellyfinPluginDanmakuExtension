@@ -181,9 +181,13 @@ export class DanmakuHeatmapRenderer {
             return this;
         }
 
-        // 3. 根据实际时长调整数据
-        data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
-        this.processedData = data;
+    // 3. 根据实际时长调整数据
+    data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
+
+    // 4. 填充起始缺口与段间缺口为 0 密度片段
+    data = this.fillGapsWithZeroSegments(data, this.actualDuration);
+
+    this.processedData = data;
 
         this.debugLog('数据预处理完成，最终数据段数量:', this.processedData.length);
         this.debugLog('最终处理数据:', JSON.stringify(this.processedData, null, 2));
@@ -245,6 +249,68 @@ export class DanmakuHeatmapRenderer {
 
         this.debugLog('调整后数据:', JSON.stringify(data, null, 2));
         return data;
+    }
+
+    /**
+     * 填充起始与段间缺口为密度 0 的片段
+     * 规则：
+     * - 如果首段 start_time_seconds > 0，则添加 [0, first.start) 密度为 0 的片段
+     * - 如果前一段的 end_time_seconds 与后一段的 start_time_seconds 不连续，则在二者之间添加 [prev.end, next.start) 密度为 0 的片段
+     * - 自动丢弃无效片段（end <= start）并保持按开始时间排序
+     * @param {Array} data
+     * @param {number} actualDuration
+     * @returns {Array}
+     */
+    fillGapsWithZeroSegments(data, actualDuration) {
+        if (!Array.isArray(data) || data.length === 0) return data || [];
+
+        // 确保按开始时间排序
+        const sorted = [...data].sort((a, b) => a.start_time_seconds - b.start_time_seconds);
+        const result = [];
+
+        const clampToDuration = (t) => {
+            if (typeof actualDuration === 'number' && isFinite(actualDuration) && actualDuration > 0) {
+                return Math.max(0, Math.min(t, actualDuration));
+            }
+            return Math.max(0, t);
+        };
+
+        // 起始缺口
+        const first = sorted[0];
+        if (first.start_time_seconds > 0) {
+            const start = clampToDuration(0);
+            const end = clampToDuration(first.start_time_seconds);
+            if (end > start) {
+                result.push({ start_time_seconds: start, end_time_seconds: end, average_density: 0 });
+                this.debugLog(`起始缺口填充: [${start}, ${end}) -> 0`);
+            }
+        }
+
+        // 逐段处理，填补段间缺口
+        result.push(first);
+        for (let i = 1; i < sorted.length; i++) {
+            const prev = sorted[i - 1];
+            const curr = sorted[i];
+
+            const gapStart = clampToDuration(prev.end_time_seconds);
+            const gapEnd = clampToDuration(curr.start_time_seconds);
+
+            if (gapEnd > gapStart) {
+                result.push({ start_time_seconds: gapStart, end_time_seconds: gapEnd, average_density: 0 });
+                this.debugLog(`段间缺口填充: [${gapStart}, ${gapEnd}) -> 0`);
+            }
+
+            result.push(curr);
+        }
+
+        // 过滤无效片段并重新排序
+        const filtered = result.filter(s =>
+            typeof s.start_time_seconds === 'number' && typeof s.end_time_seconds === 'number' &&
+            s.end_time_seconds > s.start_time_seconds
+        ).sort((a, b) => a.start_time_seconds - b.start_time_seconds);
+
+        this.debugLog('缺口填充后数据:', JSON.stringify(filtered, null, 2));
+        return filtered;
     }
 
     /**
@@ -617,48 +683,63 @@ export class DanmakuHeatmapRenderer {
         const graphWidth = this.options.width;  // 使用完整宽度，不减去左右边距
         const graphHeight = this.options.height - 2 * paddingVertical;
 
-        // 计算数据点坐标 - 基于时间而不是索引
-        const points = this.processedData.map((dataPoint, index) => {
-            const normalizedDensity = (dataPoint.average_density - this.minDensity) /
-                (this.maxDensity - this.minDensity);
+        // 计算数据点坐标 - 基于时间
+        const points = [];
+        for (const seg of this.processedData) {
+            const toX = (timeSec) => (timeSec / this.actualDuration) * graphWidth;
+            const toY = (density) => {
+                const normalized = (density - this.minDensity) / (this.maxDensity - this.minDensity);
+                return paddingVertical + graphHeight - (normalized * graphHeight);
+            };
 
-            // 基于时间计算X坐标：使用数据段的中点时间
-            const midTime = (dataPoint.start_time_seconds + dataPoint.end_time_seconds) / 2;
-            const x = (midTime / this.actualDuration) * graphWidth;  // 基于时间比例计算X坐标
-            const y = paddingVertical + graphHeight - (normalizedDensity * graphHeight);
+            if (seg.average_density === 0) {
+                // 对于 0 密度片段，按边界生成两个“贴地”锚点
+                const startX = toX(seg.start_time_seconds);
+                const endX = toX(seg.end_time_seconds);
+                const y0 = toY(0);
+                points.push({ x: startX, y: y0, density: 0, midTime: seg.start_time_seconds });
+                points.push({ x: endX, y: y0, density: 0, midTime: seg.end_time_seconds });
+            } else {
+                // 非 0 片段使用中点
+                const midTime = (seg.start_time_seconds + seg.end_time_seconds) / 2;
+                const x = toX(midTime);
+                const y = toY(seg.average_density);
+                points.push({ x, y, density: seg.average_density, midTime });
+            }
+        }
 
-            return { x, y, density: dataPoint.average_density, midTime };
-        });
+        // 保证按 X 轴排序，避免 dx=0 造成斜率问题
+        points.sort((a, b) => a.x - b.x);
 
-        // 添加起始点和结束点的延伸
+        // 添加起始点和结束点的延伸（避免与已存在的边界点重复）
         if (points.length >= 2) {
-            // 计算开头的延伸点（x=0）
-            const p1 = points[0];
-            const p2 = points[1];
-            const slope = (p2.y - p1.y) / (p2.x - p1.x);
-            let startY = p1.y - slope * p1.x;  // 延伸到x=0时的y坐标
+            const epsilon = 0.5; // 判定边界的容差（像素）
+            const hasStartAtZero = Math.abs(points[0].x - 0) < epsilon;
+            const hasEndAtWidth = Math.abs(points[points.length - 1].x - graphWidth) < epsilon;
 
-            // 限制起始点Y坐标在合理范围内
-            startY = Math.max(paddingVertical, Math.min(paddingVertical + graphHeight, startY));
-            const startPoint = { x: 0, y: startY, density: p1.density, midTime: 0, isExtended: true };
+            // 起点延伸
+            if (!hasStartAtZero) {
+                const p1 = points[0];
+                const p2 = points[1];
+                const slope = (p2.y - p1.y) / (p2.x - p1.x);
+                let startY = p1.y - slope * p1.x;
+                startY = Math.max(paddingVertical, Math.min(paddingVertical + graphHeight, startY));
+                const startPoint = { x: 0, y: startY, density: p1.density, midTime: 0, isExtended: true };
+                points.unshift(startPoint);
+                this.debugLog(`添加延伸起点: 时间0s -> 坐标(${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)})`);
+            }
 
-            // 计算结尾的延伸点（x=graphWidth）
-            const pn2 = points[points.length - 2];
-            const pn1 = points[points.length - 1];
-            const endSlope = (pn1.y - pn2.y) / (pn1.x - pn2.x);
-            let endY = pn1.y + endSlope * (graphWidth - pn1.x);  // 延伸到x=graphWidth时的y坐标
-
-            // 限制结束点Y坐标在合理范围内
-            endY = Math.max(paddingVertical, Math.min(paddingVertical + graphHeight, endY));
-            const endPoint = { x: graphWidth, y: endY, density: pn1.density, midTime: this.actualDuration, isExtended: true };
-
-            // 插入起始点和结束点
-            points.unshift(startPoint);
-            points.push(endPoint);
-
-            this.debugLog('添加了延伸点:');
-            this.debugLog(`起始点: 时间0s -> 坐标(${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)})`);
-            this.debugLog(`结束点: 时间${this.actualDuration}s -> 坐标(${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)})`);
+            // 终点延伸
+            if (!hasEndAtWidth) {
+                const pn2 = points[points.length - 2];
+                const pn1 = points[points.length - 1];
+                const endSlope = (pn1.y - pn2.y) / (pn1.x - pn2.x);
+                let endY = pn1.y + endSlope * (graphWidth - pn1.x);
+                endY = Math.max(paddingVertical, Math.min(paddingVertical + graphHeight, endY));
+                const endPoint = { x: graphWidth, y: endY, density: pn1.density, midTime: this.actualDuration, isExtended: true };
+                points.push(endPoint);
+                this.debugLog(`添加延伸终点: 时间${this.actualDuration}s -> 坐标(${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)})`);
+            }
         }
 
         this.debugLog('坐标点映射详情:');
@@ -666,12 +747,7 @@ export class DanmakuHeatmapRenderer {
             if (point.isExtended) {
                 this.debugLog(`点${index}: [延伸点] 时间${point.midTime}s -> 坐标(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
             } else {
-                // 对于非延伸点，需要考虑延伸点的偏移
-                const dataIndex = points[0].isExtended ? index - 1 : index;
-                if (dataIndex >= 0 && dataIndex < this.processedData.length) {
-                    const dataPoint = this.processedData[dataIndex];
-                    this.debugLog(`点${index}: 时间${dataPoint.start_time_seconds}-${dataPoint.end_time_seconds}s(中点${point.midTime}s), 密度${dataPoint.average_density} -> 坐标(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-                }
+                this.debugLog(`点${index}: 时间${point.midTime}s, 密度${point.density} -> 坐标(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
             }
         });
 
