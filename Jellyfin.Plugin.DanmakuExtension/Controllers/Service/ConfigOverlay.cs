@@ -54,6 +54,7 @@ public partial class DanmakuService
         new FieldMap("drop_threshold", nameof(DanmakuConfig.DropThreshold), typeof(int), (c,v)=>{ if(int.TryParse(v, out var x)) c.DropThreshold = x; }, c=>c.DropThreshold),
         new FieldMap("max_chunk_size", nameof(DanmakuConfig.MaxChunkSize), typeof(int), (c,v)=>{ if(int.TryParse(v, out var x)) c.MaxChunkSize = x; }, c=>c.MaxChunkSize),
         new FieldMap("heatmap_style", nameof(DanmakuConfig.HeatmapStyle), typeof(string), (c,v)=>{ if(!string.IsNullOrEmpty(v)) c.HeatmapStyle = v; }, c=>c.HeatmapStyle),
+        new FieldMap("heatmap_interval", nameof(DanmakuConfig.HeatmapInterval), typeof(int), (c,v)=>{ if(int.TryParse(v, out var x)) c.HeatmapInterval = x; }, c=>c.HeatmapInterval),
     };
 
     /// <summary>

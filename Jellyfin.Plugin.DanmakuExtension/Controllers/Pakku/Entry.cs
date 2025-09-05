@@ -75,10 +75,8 @@ public partial class Pakku
             stats.source_stats = sourceStats;
 
             // 生成热力图数据（根据配置: off | combined | original）
-            if (!string.IsNullOrEmpty(cfg.EnableHeatmap) && cfg.EnableHeatmap != "off")
-            {
-                GenerateHeatmapData(cfg.EnableHeatmap, reps, all, stats);
-            }
+            GenerateHeatmapData(cfg, reps, all, stats);
+
 
             return (reps, stats);
         }
@@ -135,10 +133,8 @@ public partial class Pakku
         stats.original_total = all.Count;
 
         // 生成热力图数据（根据配置: off | combined | original）
-        if (!string.IsNullOrEmpty(cfg.EnableHeatmap) && cfg.EnableHeatmap != "off")
-        {
-            GenerateHeatmapData(cfg.EnableHeatmap, finalList, all, stats);
-        }
+        GenerateHeatmapData(cfg, finalList, all, stats);
+
 
         return (finalList, stats);
     }

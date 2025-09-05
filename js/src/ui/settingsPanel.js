@@ -2,6 +2,7 @@ import { BasicSettingsPage } from './pages/BasicSettingsPage.js';
 import { CombinedSettingsPage } from './pages/CombinedSettingsPage.js';
 import { FilterSettingsPage } from './pages/FilterSettingsPage.js';
 import { CommentPoolPage } from './pages/CommentPoolPage.js';
+import { HeatmapSettingsPage } from './pages/HeatmapSettingsPage.js';
 import { SearchDanmakuPage } from './pages/SearchDanmakuPage.js';
 import { updateDanmakuSettings } from '../api/fetch.js';
 
@@ -307,11 +308,12 @@ export class DanmakuSettingsPanel {
         const scrollWrap = document.createElement('div');
         scrollWrap.className = 'danmaku-settings-scroll';
         inner.appendChild(scrollWrap);
-        // 新的分页类集合（含预留的“搜索弹幕”，默认隐藏）
+        // 新的分页类集合（新增“密度图”分页，移动自基础设置）
         this._pages = [
             new BasicSettingsPage({ logger: this.logger }),
             new CombinedSettingsPage({ logger: this.logger }),
             new FilterSettingsPage({ logger: this.logger }),
+            new HeatmapSettingsPage({ logger: this.logger }),
             new SearchDanmakuPage({ logger: this.logger }),
             new CommentPoolPage({ logger: this.logger })
         ];
@@ -521,11 +523,12 @@ export class DanmakuSettingsPanel {
             // 清空旧内容
             panelsWrap.innerHTML = '';
             tabsWrap.querySelectorAll('.danmaku-settings-tab').forEach(btn => btn.remove());
-            // 重新实例化分页（保持 logger），并重建 tabs + panels（含预留的“搜索弹幕”，默认隐藏）
+            // 重新实例化分页（保持 logger），并重建 tabs + panels（含“密度图”分页）
             this._pages = [
                 new BasicSettingsPage({ logger: this.logger }),
                 new CombinedSettingsPage({ logger: this.logger }),
                 new FilterSettingsPage({ logger: this.logger }),
+                new HeatmapSettingsPage({ logger: this.logger }),
                 new SearchDanmakuPage({ logger: this.logger }),
                 new CommentPoolPage({ logger: this.logger })
             ];

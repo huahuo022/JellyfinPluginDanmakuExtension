@@ -19,6 +19,7 @@ export class DanmakuSettings {
             chConvert:          { def: '0',        type: 'string'  }, // '0' | '1' | '2'
             withRelated:        { def: 'true',     type: 'string'  }, // 服务器用字符串布尔
             enable_heatmap:     { def: 'combined', type: 'string'  },
+            heatmap_interval:   { def: 5,          type: 'number'  },
             font_size:          { def: 25,         type: 'number'  },
             font_family:        { def: 'sans-serif', type: 'string'},
             opacity:            { def: 70,         type: 'number'  },
@@ -35,7 +36,7 @@ export class DanmakuSettings {
             trim_ending:        { def: true,       type: 'boolean' },
             trim_space:         { def: true,       type: 'boolean' },
             trim_width:         { def: true,       type: 'boolean' },
-            heatmap_style:      { def: "blue",     type: 'string'  },
+            heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}",     type: 'string'  },
             mark_style:         { def: "sub_low",  type: 'string'  },
             mark_threshold:     { def: 1,          type: 'number'  },
             mode_elevation:     { def: true,       type: 'boolean' },

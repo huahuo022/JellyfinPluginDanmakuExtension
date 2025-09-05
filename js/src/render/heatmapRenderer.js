@@ -15,44 +15,13 @@ export class DanmakuHeatmapRenderer {
      * @param {boolean} options.autoResize - 是否自动响应父容器宽度变化，默认false
      * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
      * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
-     * @param {number} options.lineWidth - 线条宽度，默认1
-     * @param {string} options.color - 颜色方案，可选：'blue', 'red', 'green', 'purple', 'orange'，默认'blue'
+    * @param {number} options.lineWidth - 线条宽度，默认1
+    * @param {string} options.lineColor - 线条颜色，默认 '#3498db'
+    * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(52, 152, 219, 0.08)'
+    * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(52, 152, 219, 0.25)'
     * @param {string} options.canvasId - 生成的Canvas元素ID，默认 'danmaku-heatmap-canvas'
      */
     constructor(options = {}) {
-        // 颜色预设方案
-        const colorPresets = {
-            blue: {
-                lineColor: '#3498db',
-                gradientColorStart: 'rgba(52, 152, 219, 0.08)',
-                gradientColorEnd: 'rgba(52, 152, 219, 0.25)'
-            },
-            red: {
-                lineColor: '#e74c3c',
-                gradientColorStart: 'rgba(231, 76, 60, 0.1)',
-                gradientColorEnd: 'rgba(231, 76, 60, 0.4)'
-            },
-            green: {
-                lineColor: '#27ae60',
-                gradientColorStart: 'rgba(39, 174, 96, 0.1)',
-                gradientColorEnd: 'rgba(39, 174, 96, 0.3)'
-            },
-            purple: {
-                lineColor: '#8e44ad',
-                gradientColorStart: 'rgba(142, 68, 173, 0.15)',
-                gradientColorEnd: 'rgba(142, 68, 173, 0.45)'
-            },
-            orange: {
-                lineColor: '#f39c12',
-                gradientColorStart: 'rgba(243, 156, 18, 0.1)',
-                gradientColorEnd: 'rgba(243, 156, 18, 0.3)'
-            }
-        };
-
-        // 获取颜色方案
-        const colorScheme = options.color || 'blue';
-        const selectedColors = colorPresets[colorScheme] || colorPresets.blue;
-
         this.options = {
             width: options.width || 800,
             height: options.height || 60,
@@ -61,12 +30,10 @@ export class DanmakuHeatmapRenderer {
 
             // 线条样式配置
             lineWidth: options.lineWidth || 1,
-            color: colorScheme,
-
-            // 从预设方案中获取的颜色配置
-            lineColor: selectedColors.lineColor,
-            gradientColorStart: selectedColors.gradientColorStart,
-            gradientColorEnd: selectedColors.gradientColorEnd,
+          // 直接使用传入颜色（无预设），提供默认值
+          lineColor: options.lineColor ?? '#3498db',
+          gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
+          gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
             canvasId: options.canvasId || 'danmaku-heatmap-canvas',
 
             ...options
@@ -95,7 +62,6 @@ export class DanmakuHeatmapRenderer {
         this.debugLog('热力图渲染器已初始化');
         this.debugLog('样式配置:', {
             lineWidth: this.options.lineWidth,
-            color: this.options.color,
             lineColor: this.options.lineColor,
             gradientColorStart: this.options.gradientColorStart,
             gradientColorEnd: this.options.gradientColorEnd,
@@ -1042,6 +1008,48 @@ export class DanmakuHeatmapRenderer {
             this.showError('重新计算失败: ' + error.message);
             return this;
         }
+    }
+
+    /**
+     * 实时更新样式并立即重绘
+     * @param {Object} styles
+     * @param {number} [styles.lineWidth] 线条宽度
+     * @param {string} [styles.lineColor] 线条颜色
+     * @param {string} [styles.gradientColorStart] 渐变起始颜色
+     * @param {string} [styles.gradientColorEnd] 渐变结束颜色
+     * @returns {DanmakuHeatmapRenderer}
+     */
+    updateStyles(styles = {}) {
+        if (!styles || typeof styles !== 'object') return this;
+
+        const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styles;
+
+        if (typeof lineWidth === 'number' && isFinite(lineWidth) && lineWidth > 0) {
+            this.options.lineWidth = lineWidth;
+        }
+        if (typeof lineColor === 'string' && lineColor) {
+            this.options.lineColor = lineColor;
+        }
+        if (typeof gradientColorStart === 'string' && gradientColorStart) {
+            this.options.gradientColorStart = gradientColorStart;
+        }
+        if (typeof gradientColorEnd === 'string' && gradientColorEnd) {
+            this.options.gradientColorEnd = gradientColorEnd;
+        }
+
+        this.debugLog('样式已更新:', {
+            lineWidth: this.options.lineWidth,
+            lineColor: this.options.lineColor,
+            gradientColorStart: this.options.gradientColorStart,
+            gradientColorEnd: this.options.gradientColorEnd
+        });
+
+        // 如果已有画布，立即重绘以实时生效
+        if (this.canvas && this.ctx) {
+            this.redraw();
+        }
+
+        return this;
     }
 
     /**

@@ -190,15 +190,46 @@ export function generateHeatmap(logger = null) {
     const width = container.scrollWidth || container.offsetWidth || 3840;
         // 若已有 renderer，复用实例，仅 process 生成画布
         if (!g.heatmapRenderer) {
-            g.heatmapRenderer = new DanmakuHeatmapRenderer({
-            autoResize: true,
-            resizeThreshold: 50,
-            resizeDebounceDelay: 100,
-            debug: false,
-            color: 'blue',
-            canvasId: CANVAS_ID
-            });
+            // 尝试从设置中读取热力图样式（JSON 字符串）
+            let styleCfg = null;
+            try {
+                const s = g.danmakuSettings;
+                const raw = s?.get?.('heatmap_style');
+                if (typeof raw === 'string' && raw.trim()) {
+                    styleCfg = JSON.parse(raw);
+                }
+            } catch (_) { styleCfg = null; }
+
+            const baseOptions = {
+                autoResize: true,
+                resizeThreshold: 50,
+                resizeDebounceDelay: 100,
+                debug: true,
+                canvasId: CANVAS_ID
+            };
+            // 若解析成功则将样式合入构造参数（允许覆盖默认）
+            const ctorOptions = { ...baseOptions };
+            if (styleCfg && typeof styleCfg === 'object') {
+                const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg;
+                if (Number.isFinite(lineWidth)) ctorOptions.lineWidth = lineWidth;
+                if (typeof lineColor === 'string') ctorOptions.lineColor = lineColor;
+                if (typeof gradientColorStart === 'string') ctorOptions.gradientColorStart = gradientColorStart;
+                if (typeof gradientColorEnd === 'string') ctorOptions.gradientColorEnd = gradientColorEnd;
+            }
+
+            g.heatmapRenderer = new DanmakuHeatmapRenderer(ctorOptions);
         }
+
+        // 初始化后再次确保样式应用（兼容运行中修改样式的场景）
+        try {
+            const s = g.danmakuSettings;
+            const raw = s?.get?.('heatmap_style');
+            if (typeof raw === 'string' && raw.trim()) {
+                const styleCfg = JSON.parse(raw);
+                const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg || {};
+                g.heatmapRenderer.updateStyles({ lineWidth, lineColor, gradientColorStart, gradientColorEnd });
+            }
+        } catch (_) { /* ignore */ }
 
         const canvas = g.heatmapRenderer.process(heatmapArray, duration, width);
         canvas.id = CANVAS_ID;

@@ -470,126 +470,6 @@ export class BasicSettingsPage {
     return row;
   }
 
-  _createHeatmapModeRow() {
-    const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
-    const current = settings?.get?.('enable_heatmap') ?? 'combined'; // 'off' | 'combined' | 'original'
-    const row = document.createElement('div');
-    row.className = 'danmaku-setting-row';
-    row.setAttribute('data-key', 'enable_heatmap');
-    row.setAttribute('data-type', 'enum');
-
-    const labelLine = document.createElement('div');
-    labelLine.className = 'danmaku-setting-row__label';
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'danmaku-setting-row__labelText';
-    labelSpan.textContent = '弹幕密度图';
-    labelLine.appendChild(labelSpan);
-    row.appendChild(labelLine);
-
-    const group = document.createElement('div');
-    group.style.display = 'flex';
-    group.style.width = '100%';
-    group.style.gap = '6px';
-    group.style.marginTop = '4px';
-
-    const options = [
-      { key: 'off', label: '关闭' },
-      { key: 'combined', label: '合并后' },
-      { key: 'original', label: '原始数据' }
-    ];
-
-    const applyValue = (val) => {
-      try {
-        const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
-        const liveSettings = g.danmakuSettings || settings;
-        liveSettings?.set?.('enable_heatmap', val);
-        // 实时应用到热力图
-        try {
-          if (val === 'off') {
-            // 优先调用渲染器 hide；退化隐藏画布
-            if (g.heatmapRenderer && typeof g.heatmapRenderer.hide === 'function') {
-              g.heatmapRenderer.hide();
-            } else {
-              const c = document.getElementById('danmaku-heatmap-canvas');
-              if (c) c.style.display = 'none';
-            }
-          } else {
-            // 显示或按需生成
-            let shown = false;
-            if (g.heatmapRenderer && typeof g.heatmapRenderer.show === 'function') {
-              g.heatmapRenderer.show();
-              shown = true;
-            }
-            const canvas = document.getElementById('danmaku-heatmap-canvas');
-            if (!shown && canvas) { canvas.style.display = 'block'; shown = true; }
-            if (!shown) {
-              // 尝试通过扩展实例生成（允许内部自愈）
-              try { g.getExt?.()?._generateHeatmap?.(); } catch (_) { }
-            }
-          }
-        } catch (_) { }
-        saveIfAutoOn(this.logger);
-      } catch (_) { }
-      this.logger?.info?.('[BasicSettings] enable_heatmap ->', val);
-    };
-
-    options.forEach(opt => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = opt.label;
-      btn.dataset.val = opt.key;
-      btn.style.flex = '1 1 0';
-      btn.style.padding = '6px 4px';
-      btn.style.fontSize = '12px';
-      btn.style.lineHeight = '1.1';
-      btn.style.borderRadius = '6px';
-      btn.style.border = '1px solid rgba(255,255,255,.25)';
-      btn.style.background = 'rgba(255,255,255,.08)';
-      btn.style.color = '#fff';
-      btn.style.cursor = 'pointer';
-      btn.style.transition = 'background .15s, border-color .15s, box-shadow .15s';
-      const setActiveState = () => {
-        if (btn.dataset.val === String(currentVal)) {
-          btn.style.background = '#3fa9ff';
-          btn.style.borderColor = '#3fa9ff';
-          btn.style.boxShadow = '0 0 0 1px rgba(63,169,255,.6),0 2px 6px -2px rgba(63,169,255,.6)';
-        } else {
-          btn.style.background = 'rgba(255,255,255,.08)';
-          btn.style.borderColor = 'rgba(255,255,255,.25)';
-          btn.style.boxShadow = 'none';
-        }
-      };
-      btn.addEventListener('mouseenter', () => { if (btn.dataset.val !== String(currentVal)) btn.style.background = 'rgba(255,255,255,.15)'; });
-      btn.addEventListener('mouseleave', () => setActiveState());
-      btn.addEventListener('click', () => {
-        if (currentVal === opt.key) return;
-        currentVal = opt.key;
-        applyValue(currentVal);
-        group.querySelectorAll('button').forEach(b => {
-          const v = b.dataset.val;
-          if (v === currentVal) {
-            b.style.background = '#3fa9ff';
-            b.style.borderColor = '#3fa9ff';
-            b.style.boxShadow = '0 0 0 1px rgba(63,169,255,.6),0 2px 6px -2px rgba(63,169,255,.6)';
-          } else {
-            b.style.background = 'rgba(255,255,255,.08)';
-            b.style.borderColor = 'rgba(255,255,255,.25)';
-            b.style.boxShadow = 'none';
-          }
-        });
-      });
-      group.appendChild(btn);
-      setTimeout(setActiveState, 0);
-    });
-
-    let currentVal = String(current);
-    row.appendChild(group);
-    const desc = document.createElement('div');
-    desc.className = 'danmaku-setting-row__desc';
-    // desc.textContent = '选择是否显示弹幕密度图（热力图）。';
-    row.appendChild(desc);
-    return row;
-  }
 
   _createDisplayRangeRow() {
     const settings = window?.__jfDanmakuGlobal__?.danmakuSettings;
@@ -873,7 +753,6 @@ export class BasicSettingsPage {
     list.appendChild(this._createOpacityRow());
     list.appendChild(this._createSpeedRow());
     list.appendChild(this._createFontFamilyRow());
-    list.appendChild(this._createHeatmapModeRow());
     list.appendChild(this._createChConvertRow());
     list.appendChild(this._createDisplayRangeRow());
     panel.appendChild(list);

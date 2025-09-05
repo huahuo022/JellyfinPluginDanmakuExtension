@@ -10,9 +10,18 @@ public partial class Pakku
     // ======== 热力图数据生成 ========
     private const int HEATMAP_INTERVAL_SECONDS = 5; // 固定时间段间隔（秒）
 
-    private static void GenerateHeatmapData(string mode, List<DanmuObjectRepresentative> representatives, List<DanmuObject> originalDanmus, Stats stats)
+    private static void GenerateHeatmapData(DanmakuConfig? cfg, List<DanmuObjectRepresentative> representatives, List<DanmuObject> originalDanmus, Stats stats)
     {
-        var intervalSeconds = HEATMAP_INTERVAL_SECONDS;
+        var intervalSeconds = cfg?.HeatmapInterval ?? HEATMAP_INTERVAL_SECONDS;
+        var mode = (cfg?.EnableHeatmap ?? "off").Trim();
+
+        // 当配置为 off 时，不生成热力图数据
+        if (string.Equals(mode, "off", StringComparison.OrdinalIgnoreCase))
+        {
+            stats.heatmap_data = new();
+            return;
+        }
+
         var densityByTimeSlot = new Dictionary<int, (double totalDensity, int count)>();
         bool useOriginal = string.Equals(mode, "original", StringComparison.OrdinalIgnoreCase);
         IEnumerable<DanmuObject> source = useOriginal ? originalDanmus : representatives;

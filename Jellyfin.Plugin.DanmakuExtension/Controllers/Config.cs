@@ -30,7 +30,8 @@ public class DanmakuConfig
     public bool TrimEnding { get; set; } = true;
     public bool TrimSpace { get; set; } = true;
     public bool TrimWidth { get; set; } = true;
-    public string HeatmapStyle { get; set; } = "blue";
+    public string HeatmapStyle { get; set; } =
+        "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}";
     public string MarkStyle { get; set; } = "sub_low";
     public int MarkThreshold { get; set; } = 1;
     public bool ModeElevation { get; set; } = true;
@@ -42,6 +43,7 @@ public class DanmakuConfig
 
     // 热力图配置: off | combined(基于代表弹幕) | original(基于原始弹幕)
     public string EnableHeatmap { get; set; } = "combined";
+    public int HeatmapInterval { get; set; } = 5;
 
     // 列表配置 (JSON 格式)
     public string ForcelistJson { get; set; } = "";
