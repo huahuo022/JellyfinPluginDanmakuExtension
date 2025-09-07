@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-05T09:43:35.819Z
+ * 构建时间: 2025-09-07T22:48:43.396Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -32,6 +32,8 @@
             // 定义所有受支持的键：默认值 + 期望类型
             // type: 'number' | 'boolean' | 'string'
             this._schema = Object.freeze({
+                // 基础选项
+                enable_danmaku:     { def: true,       type: 'boolean' },
                 chConvert:          { def: '0',        type: 'string'  }, // '0' | '1' | '2'
                 withRelated:        { def: 'true',     type: 'string'  }, // 服务器用字符串布尔
                 enable_heatmap:     { def: 'combined', type: 'string'  },
@@ -236,11 +238,6 @@
             return null;
         }
 
-        // 若没有媒体标识，避免误将默认设置保存到服务器
-        if (!item_id && !danmaku_id) {
-            logger?.info?.('跳过保存：缺少 item_id/danmaku_id');
-            return null;
-        }
 
         try {
             const settingsObj = gSettings.toJSON();
@@ -281,7 +278,7 @@
                 }
             }
             g.danmakuData = result;
-            logger?.info?.('全局 danmakuData 已刷新', { 数量: result.comments.length });
+            logger?.info?.('全局 danmakuData 已刷新', { 数量: result.comments?.length?? undefined });
 
             if (item_id || danmaku_id) {
                 try {
@@ -312,7 +309,7 @@
                     logger?.warn?.('刷新全局 danmakuData 失败', e);
                 }
             } else {
-                logger?.info?.('设置已保存：未提供 item_id / danmaku_id，服务器正常不返回弹幕数据（未执行 _applyDanmakuResponse）');
+                logger?.info?.('设置已保存：未提供 item_id / danmaku_id，服务器正常不返回弹幕数据');
             }
             return result;
         } catch (err) {
@@ -6986,8 +6983,7 @@
             this.settingsButton = null;
             this.settingsPanel = new DanmakuSettingsPanel({ logger: this.logger });
             this._globalKeyInterceptor = null; // 聚焦输入时的全局快捷键拦截器
-            this._enabled = false; // 当前开关状态（将尝试从本地存储恢复）
-            this._storageKeyEnabled = 'jf_danmaku_enabled'; // 本地存储 key
+        this._enabled = false; // 当前开关状态（从设置 enable_danmaku 恢复）
             this._toggleRetryTimer = null; // 全局渲染器未就绪时的延迟重试
             this._onToggle = this._onToggle.bind(this);
             this._onOpenSettings = this._onOpenSettings.bind(this);
@@ -7035,8 +7031,8 @@
             this.toggleButton = toggleBtn;
             this.settingsButton = settingsBtn;
 
-            // 初次创建后尝试恢复开关状态
-            this._restoreEnabledState();
+        // 初次创建后尝试从设置恢复开关状态
+        this._restoreEnabledStateFromSettings();
             // 应用 UI 标记（不触发日志）
             try {
                 group.setAttribute('data-enabled', String(this._enabled));
@@ -7057,8 +7053,16 @@
                 this.toggleButton?.setAttribute('aria-pressed', this._enabled ? 'true' : 'false');
             } catch (_) { /* no-op */ }
 
-            // 持久化当前状态
-            this._persistEnabledState();
+            // 写回设置
+            try {
+                const g = (typeof window !== 'undefined') ? window.__jfDanmakuGlobal__ : null;
+                if (g?.danmakuSettings?.set) {
+                    g.danmakuSettings.set('enable_danmaku', !!this._enabled);
+                    updateDanmakuSettings(this.logger || null).catch((err) => {
+                        this.logger?.warn?.('保存设置失败', err);
+                    });
+                }
+            } catch (_) { /* ignore */ }
 
             // 与全局弹幕渲染器联动 show/hide
             this._applyVisibilityWithRetry();
@@ -7091,21 +7095,18 @@
             }
         }
 
-        _persistEnabledState() {
-            try {
-                if (typeof window === 'undefined' || !window.localStorage) return;
-                window.localStorage.setItem(this._storageKeyEnabled, this._enabled ? '1' : '0');
-            } catch (_) { /* ignore */ }
-        }
-
-        _restoreEnabledState() {
+        _restoreEnabledStateFromSettings() {
             if (this._restored) return; // 只尝试一次
             this._restored = true;
             try {
-                if (typeof window === 'undefined' || !window.localStorage) return;
-                const v = window.localStorage.getItem(this._storageKeyEnabled);
-                if (v === '1') this._enabled = true;
-                if (v === '0') this._enabled = false;
+                const g = (typeof window !== 'undefined') ? window.__jfDanmakuGlobal__ : null;
+                const enabled = (g?.danmakuSettings?.asBool?.('enable_danmaku'));
+                if (typeof enabled === 'boolean') {
+                    this._enabled = enabled;
+                } else {
+                    // 若缺失设置则使用默认 true
+                    this._enabled = true;
+                }
             } catch (_) { /* ignore */ }
         }
 
@@ -7545,33 +7546,33 @@
     // 通过 ES Module 导出，便于 Rollup 打包。
     class DanmakuHeatmapRenderer {
         /**
-         * 构造函数
-         * @param {Object} options - 配置选项
-         * @param {number} options.width - Canvas宽度，默认800（如果autoResize为true则会被覆盖）
-         * @param {number} options.height - Canvas高度，默认60
-         * @param {boolean} options.debug - 是否开启调试模式，默认false
-         * @param {boolean} options.autoResize - 是否自动响应父容器宽度变化，默认false
-         * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
-         * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
+        * 构造函数
+        * @param {Object} options - 配置选项
+        * @param {number} options.height - Canvas高度，默认60
+        * @param {boolean} options.debug - 是否开启调试模式，默认false
+        * @param {boolean} options.autoResize - 是否自动响应父容器宽度变化，默认true
+        * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
+        * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
         * @param {number} options.lineWidth - 线条宽度，默认1
         * @param {string} options.lineColor - 线条颜色，默认 '#3498db'
         * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(52, 152, 219, 0.08)'
         * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(52, 152, 219, 0.25)'
         * @param {string} options.canvasId - 生成的Canvas元素ID，默认 'danmaku-heatmap-canvas'
-         */
+        */
         constructor(options = {}) {
             this.options = {
-                width: options.width || 800,
+                // width 已弃用：始终使用父容器宽度
                 height: options.height || 60,
                 debug: options.debug || false,
-                autoResize: options.autoResize || false,
+                // 默认启用
+                autoResize: options.autoResize !== false,
 
                 // 线条样式配置
                 lineWidth: options.lineWidth || 1,
-              // 直接使用传入颜色（无预设），提供默认值
-              lineColor: options.lineColor ?? '#3498db',
-              gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
-              gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
+                // 直接使用传入颜色（无预设），提供默认值
+                lineColor: options.lineColor ?? '#3498db',
+                gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
+                gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
                 canvasId: options.canvasId || 'danmaku-heatmap-canvas',
 
                 ...options
@@ -7579,6 +7580,8 @@
 
             this.canvas = null;
             this.ctx = null;
+            // 逻辑宽度（CSS 像素），由父容器决定
+            this.logicalWidth = 0;
             this.rawData = [];          // 原始热力图数据
             this.processedData = [];    // 处理后的数据
             this.actualDuration = 0;    // 视频实际时长（秒）
@@ -7597,6 +7600,9 @@
             this.resizeDebounceDelay = options.resizeDebounceDelay || 300; // 防抖延迟时间（毫秒）
             this.pendingWidth = null;                                // 等待处理的宽度值
 
+            if (options.width != null) {
+                this.debugLog('提示：width 选项已弃用，将忽略并使用父容器宽度');
+            }
             this.debugLog('热力图渲染器已初始化');
             this.debugLog('样式配置:', {
                 lineWidth: this.options.lineWidth,
@@ -7685,13 +7691,13 @@
                 return this;
             }
 
-        // 3. 根据实际时长调整数据
-        data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
+            // 3. 根据实际时长调整数据
+            data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
 
-        // 4. 填充起始缺口与段间缺口为 0 密度片段
-        data = this.fillGapsWithZeroSegments(data, this.actualDuration);
+            // 4. 填充起始缺口与段间缺口为 0 密度片段
+            data = this.fillGapsWithZeroSegments(data, this.actualDuration);
 
-        this.processedData = data;
+            this.processedData = data;
 
             this.debugLog('数据预处理完成，最终数据段数量:', this.processedData.length);
             this.debugLog('最终处理数据:', JSON.stringify(this.processedData, null, 2));
@@ -7876,11 +7882,11 @@
         handleResize(entry) {
             const newWidth = Math.floor(entry.contentRect.width);
 
-            if (newWidth !== this.options.width && newWidth > 0) {
-                this.debugLog(`容器宽度变化检测: ${this.options.width}px -> ${newWidth}px`);
+            if (newWidth !== this.logicalWidth && newWidth > 0) {
+                this.debugLog(`容器宽度变化检测: ${this.logicalWidth}px -> ${newWidth}px`);
 
                 // 立即更新Canvas尺寸以保持视觉连续性
-                this.options.width = newWidth;
+                this.logicalWidth = newWidth;
                 this.updateCanvasSize();
 
                 // 立即进行临时的缩放渲染，避免热力图消失
@@ -7910,7 +7916,7 @@
         performQuickResize() {
             if (this.cachedCanvas) {
                 // 使用缓存的内容进行快速缩放
-                this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+                this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
                 // 计算设备像素比
                 const devicePixelRatio = window.devicePixelRatio || 1;
@@ -7923,10 +7929,10 @@
                 this.ctx.drawImage(
                     this.cachedCanvas,
                     0, 0, this.cachedCanvas.width, this.cachedCanvas.height,
-                    0, 0, this.options.width, this.options.height
+                    0, 0, this.logicalWidth, this.options.height
                 );
 
-                this.debugLog(`使用缓存内容进行快速缩放: ${cacheLogicalWidth}x${cacheLogicalHeight} -> ${this.options.width}x${this.options.height}`);
+                this.debugLog(`使用缓存内容进行快速缩放: ${cacheLogicalWidth}x${cacheLogicalHeight} -> ${this.logicalWidth}x${this.options.height}`);
             } else if (this.processedData && this.processedData.length > 0) {
                 // 如果没有缓存，进行快速重绘
                 this.drawHeatmap();
@@ -7970,14 +7976,24 @@
             // 获取设备像素比，确保高清显示
             const devicePixelRatio = window.devicePixelRatio || 1;
 
-            this.debugLog('更新Canvas尺寸:', this.options.width, 'x', this.options.height, '设备像素比:', devicePixelRatio);
+            // 计算父容器宽度
+            const container = this.canvas.parentElement || this.parentContainer;
+            let measuredWidth = 0;
+            if (container) {
+                measuredWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
+            }
+            if (!measuredWidth) measuredWidth = Math.floor(this.canvas.getBoundingClientRect().width || 0);
+            if (!measuredWidth) measuredWidth = this.logicalWidth || 800;
+            this.logicalWidth = measuredWidth;
+
+            this.debugLog('更新Canvas尺寸:', this.logicalWidth, 'x', this.options.height, '设备像素比:', devicePixelRatio);
 
             // 设置Canvas的内部分辨率（考虑设备像素比）
-            this.canvas.width = this.options.width * devicePixelRatio;
+            this.canvas.width = this.logicalWidth * devicePixelRatio;
             this.canvas.height = this.options.height * devicePixelRatio;
 
-            // 设置Canvas的CSS显示尺寸
-            this.canvas.style.width = this.options.width + 'px';
+            // 设置Canvas的CSS显示尺寸（宽度使用 100% 以跟随父容器）
+            this.canvas.style.width = '100%';
             this.canvas.style.height = this.options.height + 'px';
 
             // 重新获取上下文（Canvas尺寸变化后上下文会重置）
@@ -8068,10 +8084,10 @@
 
             try {
                 // 清空当前Canvas
-                this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+                this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
                 // 计算缩放比例以适应新的Canvas尺寸
-                const scaleX = this.options.width / (this.cachedCanvas.width / (window.devicePixelRatio || 1));
+                const scaleX = this.logicalWidth / (this.cachedCanvas.width / (window.devicePixelRatio || 1));
                 const scaleY = this.options.height / (this.cachedCanvas.height / (window.devicePixelRatio || 1));
 
                 // 保存当前状态
@@ -8100,8 +8116,8 @@
          * @returns {HTMLCanvasElement} 渲染好的Canvas元素
          */
         createCanvas(styleOptions = {}) {
-        // 允许 processedData 为空：返回空白（透明）Canvas，供外层正常挂载
-        const noData = !this.processedData || this.processedData.length === 0;
+            // 允许 processedData 为空：返回空白（透明）Canvas，供外层正常挂载
+            const noData = !this.processedData || this.processedData.length === 0;
 
             // 获取设备像素比，确保高清显示
             const devicePixelRatio = window.devicePixelRatio || 1;
@@ -8110,8 +8126,8 @@
             this.canvas = document.createElement('canvas');
             this.canvas.id = this.options.canvasId; // 使用可自定义的ID
 
-            // 设置Canvas的内部分辨率（考虑设备像素比）
-            this.canvas.width = this.options.width * devicePixelRatio;
+            // 初始内部分辨率（等待插入 DOM 后再由父容器宽度决定实际尺寸）
+            this.canvas.width = Math.max(1, (this.logicalWidth || 1) * devicePixelRatio);
             this.canvas.height = this.options.height * devicePixelRatio;
 
             // 应用默认样式
@@ -8134,8 +8150,8 @@
             const finalStyle = { ...defaultStyle, ...styleOptions };
             Object.assign(this.canvas.style, finalStyle);
 
-            // 确保CSS显示尺寸正确
-            this.canvas.style.width = this.options.width + 'px';
+            // 自适应宽度
+            this.canvas.style.width = '100%';
             this.canvas.style.height = this.options.height + 'px';
 
             this.ctx = this.canvas.getContext('2d');
@@ -8148,27 +8164,20 @@
                 // 延迟设置，确保Canvas已插入DOM
                 setTimeout(() => {
                     this.setupResizeObserver();
+                    // 初始化一次尺寸并尝试绘制
+                    this.updateCanvasSize();
+                    if (!noData) {
+                        this.calculateDensityRange();
+                        this.drawHeatmap();
+                        this.cacheCanvas();
+                        this.lastRenderedWidth = this.logicalWidth;
+                    }
                 }, 0);
             }
-
             if (noData) {
                 // 空数据：不绘制，仅返回空白透明画布
                 this.debugLog('空数据：创建空白热力图 Canvas');
-            } else {
-                // 计算密度范围并绘制
-                this.calculateDensityRange();
-                this.debugLog('绘制前数据点映射:');
-                this.debugLog('- 数据段数量:', this.processedData.length);
-                this.debugLog('- 密度范围:', this.minDensity, '到', this.maxDensity);
-                this.debugLog('- Canvas尺寸:', this.options.width, 'x', this.options.height);
-                this.debugLog('- Canvas分辨率:', this.canvas.width, 'x', this.canvas.height);
-                this.debugLog('- 设备像素比:', devicePixelRatio);
-                this.drawHeatmap();
             }
-
-            // 记录初始渲染宽度并缓存结果
-            this.lastRenderedWidth = this.options.width;
-            this.cacheCanvas();
 
             this.debugLog('Canvas创建完成');
             return this.canvas;
@@ -8181,10 +8190,10 @@
             if (!this.ctx || this.processedData.length === 0) return;
 
             // 清空画布
-            this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+            this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
             const paddingVertical = 5;  // 只保留上下边距
-            const graphWidth = this.options.width;  // 使用完整宽度，不减去左右边距
+            const graphWidth = this.logicalWidth;  // 使用完整宽度，不减去左右边距
             const graphHeight = this.options.height - 2 * paddingVertical;
 
             // 计算数据点坐标 - 基于时间
@@ -8459,14 +8468,14 @@
         showError(message = '热力图渲染失败') {
             if (!this.ctx) return;
 
-            this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+            this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
             this.ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
-            this.ctx.fillRect(0, 0, this.options.width, this.options.height);
+            this.ctx.fillRect(0, 0, this.logicalWidth, this.options.height);
 
             this.ctx.fillStyle = '#dc3545';
             this.ctx.font = '14px Arial';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText(message, this.options.width / 2, this.options.height / 2);
+            this.ctx.fillText(message, this.logicalWidth / 2, this.options.height / 2);
         }
 
         /**
@@ -8518,7 +8527,7 @@
                 if (!this.rawData || this.rawData.length === 0) {
                     // 无数据：清空画布并缓存空状态
                     this.debugLog('没有原始数据：清空画布并保持空白');
-                    this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+                    this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
                     this.cacheCanvas();
                     return this;
                 }
@@ -8535,7 +8544,7 @@
                 this.drawHeatmap();
 
                 // 更新缓存
-                this.lastRenderedWidth = this.options.width;
+                this.lastRenderedWidth = this.logicalWidth;
                 this.cacheCanvas();
 
                 this.debugLog('重新计算完成');
@@ -8629,27 +8638,6 @@
     // }
 
     /**
-     * 弹幕Canvas渲染引擎
-     * 
-     * 这是一个基于Canvas的弹幕渲染系统，支持以下功能：
-     * - 多种弹幕模式：滚动弹幕（从右到左、从左到右）、固定弹幕（顶部、底部）
-     * - 自动碰撞检测和位置分配
-     * - 媒体元素同步播放
-     * - 高分辨率屏幕适配
-     * - 自定义样式和渲染函数
-     * - 动态添加弹幕
-     * - 性能优化的Canvas渲染
-     * 
-     * @author WeChat FE Team
-     * @version 1.0.0
-     */
-
-    /**
-     * 弹幕Canvas渲染引擎
-     * 用于在Canvas上渲染和控制弹幕的显示效果
-     */
-
-    /**
      * 自动检测浏览器支持的CSS Transform属性
      * 兼容不同浏览器的前缀版本
      */
@@ -8688,7 +8676,7 @@
      * 远程字体支持（/danmaku/font/ 前缀）
      * - 使用 FontFace 动态加载
      * - 通过 Jellyfin ApiClient.getUrl 生成绝对地址
-     * - 结果缓存在 window.__jfDanmakuGlobal__.remoteFontCache 中
+     * - 结果缓存在模块级 fontCache 中
      * - 加载失败回退到系统 sans-serif
      */
     function __getGlobal() {
@@ -8700,15 +8688,21 @@
       }
     }
 
-    function __getRemoteFontCache() {
-      var g = __getGlobal();
-      g.remoteFontCache = g.remoteFontCache || {};
-      return g.remoteFontCache;
-    }
+    // 字体缓存
+    var fontCache = Object.create(null);
 
     function __normalizeRel(path) {
       // 去除开头的 '/'
       return (path || '').replace(/^\/+/, '');
+    }
+
+    // 提取样式字符串中的远程字体 URL（/danmaku/font/...）
+    function extractRemoteFontUrl(styleFont) {
+      try {
+        if (!styleFont || typeof styleFont !== 'string') return null;
+        var m = styleFont.match(/\/danmaku\/font\/[^"',)\s]+/);
+        return m ? m[0] : null;
+      } catch (_) { return null; }
     }
 
     /**
@@ -8719,7 +8713,7 @@
     function ensureRemoteFontLoaded(urlPath) {
       try {
         if (!urlPath || typeof urlPath !== 'string' || urlPath.indexOf('/danmaku/font/') !== 0) return Promise.resolve(null);
-        var cache = __getRemoteFontCache();
+        var cache = fontCache;
         if (cache[urlPath] && cache[urlPath].status === 'loaded') {
           return Promise.resolve(cache[urlPath].family);
         }
@@ -8773,12 +8767,11 @@
             // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
             var blob = new Blob([arrBuf], { type: typeHint });
             var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
-            var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+            var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', display: 'swap' });
             var loaded = await ff.load();
             try { document.fonts.add(loaded); } catch (_) { }
             try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) { }
             cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-            try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) { }
             return family;
           } catch (err) {
             cache[urlPath] = { status: 'failed', error: String(err) };
@@ -8806,16 +8799,16 @@
         var m = style.font.match(/\/danmaku\/font\/[^"',)\s]+/);
         if (!m) return;
         var url = m[0];
-        var cache = __getRemoteFontCache();
+        var cache = fontCache;
         if (cache[url] && cache[url].status === 'loaded' && cache[url].family) {
           var fam = cache[url].family;
           style.font = style.font.replace(url, "'" + fam + "'");
           return;
         }
-        // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
-        style.font = style.font.replace(url, 'sans-serif');
-        // 异步触发加载；后续新建弹幕会拿到已加载的家族名
-        ensureRemoteFontLoaded(url);
+      // 未加载或加载失败：用安全的回退字体替换占位，保留原字号/行高，避免 Canvas 解析为 10px
+      style.font = style.font.replace(url, 'sans-serif');
+      // 仍然异步尝试加载；加载成功后，后续新建弹幕会使用已加载的家族名
+      ensureRemoteFontLoaded(url);
       } catch (_) { /* ignore */ }
     }
 
@@ -9420,7 +9413,7 @@
       // 默认策略：按原库逻辑让 position 指向 "当前时间之前的最后一条"，首帧再回填其后仍在持续窗口内的弹幕
       this._.position = Math.max(0, position - 1);
 
-      // 可选：在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现，减少视觉空窗
+      // 在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现
       if (this._.backfillOnSeek) {
         try {
           var ct = this.media.currentTime;
@@ -9573,6 +9566,33 @@
 
       this._.paused = true;
 
+      // 首帧字体就绪屏障：在第一条弹幕进入前等待需要的远程字体加载完成
+      // 收集来源：
+      // 1) 传入 comments 的 style.font 中引用的 /danmaku/font/
+      // 2) 全局设置中的 font_family 若为 /danmaku/font/
+      var fontUrls = [];
+      try {
+        for (var fi = 0; fi < this.comments.length; fi++) {
+          var fstyle = this.comments[fi] && this.comments[fi].style;
+          var fu = fstyle && extractRemoteFontUrl(fstyle.font);
+          if (fu) fontUrls.push(fu);
+        }
+      } catch (_) { }
+      try {
+        var g = __getGlobal();
+        var ff = g?.danmakuSettings?.get?.('font_family');
+        if (typeof ff === 'string' && ff.indexOf('/danmaku/font/') === 0) {
+          fontUrls.push(ff);
+        }
+      } catch (_) { }
+      // 去重
+      var needFonts = Array.from(new Set(fontUrls));
+      var waitFontsPromise = Promise.resolve();
+      if (needFonts.length > 0) {
+        waitFontsPromise = Promise.all(needFonts.map(function (u) { return ensureRemoteFontLoaded(u); })).then(function () { }).catch(function () { });
+      }
+      this._.fontReadyPromise = waitFontsPromise;
+
       // 如果有媒体元素，绑定事件监听器
       if (this.media) {
         this._.listener = {};
@@ -9608,10 +9628,13 @@
       this._.space = {};
       resetSpace(this._.space);
 
-      // 如果媒体未暂停或没有媒体元素，开始播放
+      // 如果媒体未暂停或没有媒体元素，等待字体就绪后再开始播放，避免首帧字体回退
       if (!this.media || !this.media.paused) {
-        seek.call(this);
-        play.call(this);
+        var self = this;
+        this._.fontReadyPromise.then(function () {
+          seek.call(self);
+          play.call(self);
+        });
       }
       return this;
     }
@@ -9720,11 +9743,15 @@
       this._.visible = true;
       // 始终执行 seek 以重建运行列表并触发回填逻辑（即使媒体处于暂停状态）
       // 这样在 hide() -> show() 且视频暂停时，也能看到当前时间窗口内应在屏幕上的弹幕
-      seek.call(this);
-      // 如果媒体正在播放则恢复动画帧；若暂停则 seek 内部已静态渲染一帧
-      if (!(this.media && this.media.paused)) {
-        play.call(this);
-      }
+      var self = this;
+      var p = this._.fontReadyPromise || Promise.resolve();
+      p.then(function () {
+        seek.call(self);
+        // 如果媒体正在播放则恢复动画帧；若暂停则 seek 内部已静态渲染一帧
+        if (!(self.media && self.media.paused)) {
+          play.call(self);
+        }
+      });
       return this;
     }
 
@@ -10297,51 +10324,39 @@
         }
 
         try {
-        const width = container.scrollWidth || container.offsetWidth || 3840;
             // 若已有 renderer，复用实例，仅 process 生成画布
             if (!g.heatmapRenderer) {
-                // 尝试从设置中读取热力图样式（JSON 字符串）
-                let styleCfg = null;
+                // 读取样式配置（可选），仅合入已定义的键
+                let cfg = {};
                 try {
-                    const s = g.danmakuSettings;
-                    const raw = s?.get?.('heatmap_style');
-                    if (typeof raw === 'string' && raw.trim()) {
-                        styleCfg = JSON.parse(raw);
-                    }
-                } catch (_) { styleCfg = null; }
+                    const raw = g.danmakuSettings?.get?.('heatmap_style');
+                    cfg = raw && raw.trim() ? JSON.parse(raw) : {};
+                } catch (_) { /* ignore */ }
 
-                const baseOptions = {
-                    autoResize: true,
+                const styleOpts = ['lineWidth', 'lineColor', 'gradientColorStart', 'gradientColorEnd']
+                    .reduce((o, k) => (cfg?.[k] != null ? (o[k] = cfg[k], o) : o), {});
+
+                g.heatmapRenderer = new DanmakuHeatmapRenderer({
                     resizeThreshold: 50,
                     resizeDebounceDelay: 100,
-                    debug: true,
-                    canvasId: CANVAS_ID
-                };
-                // 若解析成功则将样式合入构造参数（允许覆盖默认）
-                const ctorOptions = { ...baseOptions };
-                if (styleCfg && typeof styleCfg === 'object') {
-                    const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg;
-                    if (Number.isFinite(lineWidth)) ctorOptions.lineWidth = lineWidth;
-                    if (typeof lineColor === 'string') ctorOptions.lineColor = lineColor;
-                    if (typeof gradientColorStart === 'string') ctorOptions.gradientColorStart = gradientColorStart;
-                    if (typeof gradientColorEnd === 'string') ctorOptions.gradientColorEnd = gradientColorEnd;
-                }
-
-                g.heatmapRenderer = new DanmakuHeatmapRenderer(ctorOptions);
+                    debug: false,
+                    canvasId: CANVAS_ID,
+                    ...styleOpts
+                });
             }
 
             // 初始化后再次确保样式应用（兼容运行中修改样式的场景）
             try {
-                const s = g.danmakuSettings;
-                const raw = s?.get?.('heatmap_style');
-                if (typeof raw === 'string' && raw.trim()) {
-                    const styleCfg = JSON.parse(raw);
-                    const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg || {};
-                    g.heatmapRenderer.updateStyles({ lineWidth, lineColor, gradientColorStart, gradientColorEnd });
+                const raw = g.danmakuSettings?.get?.('heatmap_style');
+                const cfg = raw && raw.trim() ? JSON.parse(raw) : null;
+                if (cfg) {
+                    const styleOpts = ['lineWidth', 'lineColor', 'gradientColorStart', 'gradientColorEnd']
+                        .reduce((o, k) => (cfg?.[k] != null ? (o[k] = cfg[k], o) : o), {});
+                    g.heatmapRenderer.updateStyles(styleOpts);
                 }
             } catch (_) { /* ignore */ }
 
-            const canvas = g.heatmapRenderer.process(heatmapArray, duration, width);
+            const canvas = g.heatmapRenderer.process(heatmapArray, duration);
             canvas.id = CANVAS_ID;
             canvas.setAttribute('data-danmaku-heatmap', 'true');
             container.appendChild(canvas);
@@ -10423,58 +10438,51 @@
         // 仅在不存在实例时创建，避免反复销毁/重建
         if (!g.danmakuRenderer) {
             const danmakuInstance = g.danmakuRenderer = new Danmaku({
-            container: layer,
-            media: videoEl,
-            comments: comments,
-            speed: (() => {
-                try {
-                    const v = g.danmakuSettings?.get('speed');
-                    const num = Number(v);
-                    if (!Number.isFinite(num)) return 144;
-                    return Math.min(600, Math.max(24, num));
-                } catch (_) { return 144; }
-            })(),
+                container: layer,
+                media: videoEl,
+                comments: comments,
+                speed: (() => {
+                    try {
+                        const v = g.danmakuSettings?.get('speed');
+                        const num = Number(v);
+                        if (!Number.isFinite(num)) return 144;
+                        return Math.min(600, Math.max(24, num));
+                    } catch (_) { return 144; }
+                })(),
             });
 
-        // 应用“是否显示”的本地记忆
-        try {
-            const key = 'jf_danmaku_enabled';
-            if (typeof window !== 'undefined' && window.localStorage) {
-                const v = window.localStorage.getItem(key);
-                if (v === null) {
-                    try { window.localStorage.setItem(key, '1'); } catch (_) { }
+            // 应用“是否显示”改为使用设置项 enable_danmaku
+            try {
+                const enabled = (g?.danmakuSettings?.asBool?.('enable_danmaku') ?? true);
+                if (enabled) {
                     try { danmakuInstance.show?.(); } catch (_) { }
-                    logger?.info?.('弹幕记忆缺失: 默认开启并写入');
-                } else if (v === '0') {
+                    logger?.info?.('读取设置: 弹幕初始显示');
+                } else {
                     try { danmakuInstance.hide?.(); } catch (_) { }
-                    logger?.info?.('读取记忆: 弹幕初始隐藏');
-                } else if (v === '1') {
-                    try { danmakuInstance.show?.(); } catch (_) { }
-                    logger?.info?.('读取记忆: 弹幕初始显示');
+                    logger?.info?.('读取设置: 弹幕初始隐藏');
                 }
-            }
-        } catch (_) { }
+            } catch (_) { }
 
-        // 尺寸自适应
-        if (typeof ResizeObserver !== 'undefined') {
-            const resizeDebounceDelay = 50;
-            let resizeTimer = null;
-            const ro = new ResizeObserver(() => {
-                if (!g.danmakuRenderer) return;
-                if (resizeTimer) clearTimeout(resizeTimer);
-                resizeTimer = setTimeout(() => {
-                    try { g.danmakuRenderer.resize(); } catch (_) { }
-                }, resizeDebounceDelay);
-            });
-            try { ro.observe(parent); } catch (_) { }
-            // 存到全局，便于 index.js 主流程在销毁时断开
-            g.__danmakuResizeObserver = ro;
-            g.__danmakuResizeTimerCancel = () => { if (resizeTimer) { try { clearTimeout(resizeTimer); } catch (_) { } resizeTimer = null; } };
-        } else {
-            const handleWindowResize = () => { try { g.danmakuRenderer?.resize?.(); } catch (_) { } };
-            window.addEventListener('resize', handleWindowResize);
-            g.__danmakuWindowResizeHandler = handleWindowResize;
-        }
+            // 尺寸自适应
+            if (typeof ResizeObserver !== 'undefined') {
+                const resizeDebounceDelay = 50;
+                let resizeTimer = null;
+                const ro = new ResizeObserver(() => {
+                    if (!g.danmakuRenderer) return;
+                    if (resizeTimer) clearTimeout(resizeTimer);
+                    resizeTimer = setTimeout(() => {
+                        try { g.danmakuRenderer.resize(); } catch (_) { }
+                    }, resizeDebounceDelay);
+                });
+                try { ro.observe(parent); } catch (_) { }
+                // 存到全局，便于 index.js 主流程在销毁时断开
+                g.__danmakuResizeObserver = ro;
+                g.__danmakuResizeTimerCancel = () => { if (resizeTimer) { try { clearTimeout(resizeTimer); } catch (_) { } resizeTimer = null; } };
+            } else {
+                const handleWindowResize = () => { try { g.danmakuRenderer?.resize?.(); } catch (_) { } };
+                window.addEventListener('resize', handleWindowResize);
+                g.__danmakuWindowResizeHandler = handleWindowResize;
+            }
 
             logger?.info?.('弹幕渲染器创建完成');
             return { status: 'created', comments: comments.length };

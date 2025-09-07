@@ -32,6 +32,7 @@ public partial class DanmakuService
 
 
         // int / double / bool
+        new FieldMap("enable_danmaku", nameof(DanmakuConfig.EnableDanmaku), typeof(string), (c,v)=>{ if(!string.IsNullOrEmpty(v)) c.EnableDanmaku = v; }, c=>c.EnableDanmaku),
         new FieldMap("font_size", nameof(DanmakuConfig.FontSize), typeof(int), (c,v)=>{ if(int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x)) c.FontSize = x; }, c=>c.FontSize),
         new FieldMap("opacity", nameof(DanmakuConfig.Opacity), typeof(int), (c,v)=>{ if(int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x)) c.Opacity = x; }, c=>c.Opacity),
         new FieldMap("speed", nameof(DanmakuConfig.Speed), typeof(int), (c,v)=>{ if(int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x)) c.Speed = x; }, c=>c.Speed),

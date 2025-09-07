@@ -7,33 +7,33 @@
 // 通过 ES Module 导出，便于 Rollup 打包。
 export class DanmakuHeatmapRenderer {
     /**
-     * 构造函数
-     * @param {Object} options - 配置选项
-     * @param {number} options.width - Canvas宽度，默认800（如果autoResize为true则会被覆盖）
-     * @param {number} options.height - Canvas高度，默认60
-     * @param {boolean} options.debug - 是否开启调试模式，默认false
-     * @param {boolean} options.autoResize - 是否自动响应父容器宽度变化，默认false
-     * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
-     * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
+    * 构造函数
+    * @param {Object} options - 配置选项
+    * @param {number} options.height - Canvas高度，默认60
+    * @param {boolean} options.debug - 是否开启调试模式，默认false
+    * @param {boolean} options.autoResize - 是否自动响应父容器宽度变化，默认true
+    * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
+    * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
     * @param {number} options.lineWidth - 线条宽度，默认1
     * @param {string} options.lineColor - 线条颜色，默认 '#3498db'
     * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(52, 152, 219, 0.08)'
     * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(52, 152, 219, 0.25)'
     * @param {string} options.canvasId - 生成的Canvas元素ID，默认 'danmaku-heatmap-canvas'
-     */
+    */
     constructor(options = {}) {
         this.options = {
-            width: options.width || 800,
+            // width 已弃用：始终使用父容器宽度
             height: options.height || 60,
             debug: options.debug || false,
-            autoResize: options.autoResize || false,
+            // 默认启用
+            autoResize: options.autoResize !== false,
 
             // 线条样式配置
             lineWidth: options.lineWidth || 1,
-          // 直接使用传入颜色（无预设），提供默认值
-          lineColor: options.lineColor ?? '#3498db',
-          gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
-          gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
+            // 直接使用传入颜色（无预设），提供默认值
+            lineColor: options.lineColor ?? '#3498db',
+            gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
+            gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
             canvasId: options.canvasId || 'danmaku-heatmap-canvas',
 
             ...options
@@ -41,6 +41,8 @@ export class DanmakuHeatmapRenderer {
 
         this.canvas = null;
         this.ctx = null;
+        // 逻辑宽度（CSS 像素），由父容器决定
+        this.logicalWidth = 0;
         this.rawData = [];          // 原始热力图数据
         this.processedData = [];    // 处理后的数据
         this.actualDuration = 0;    // 视频实际时长（秒）
@@ -59,6 +61,9 @@ export class DanmakuHeatmapRenderer {
         this.resizeDebounceDelay = options.resizeDebounceDelay || 300; // 防抖延迟时间（毫秒）
         this.pendingWidth = null;                                // 等待处理的宽度值
 
+        if (options.width != null) {
+            this.debugLog('提示：width 选项已弃用，将忽略并使用父容器宽度');
+        }
         this.debugLog('热力图渲染器已初始化');
         this.debugLog('样式配置:', {
             lineWidth: this.options.lineWidth,
@@ -147,13 +152,13 @@ export class DanmakuHeatmapRenderer {
             return this;
         }
 
-    // 3. 根据实际时长调整数据
-    data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
+        // 3. 根据实际时长调整数据
+        data = this.adjustDataByDuration(data, dataDuration, this.actualDuration);
 
-    // 4. 填充起始缺口与段间缺口为 0 密度片段
-    data = this.fillGapsWithZeroSegments(data, this.actualDuration);
+        // 4. 填充起始缺口与段间缺口为 0 密度片段
+        data = this.fillGapsWithZeroSegments(data, this.actualDuration);
 
-    this.processedData = data;
+        this.processedData = data;
 
         this.debugLog('数据预处理完成，最终数据段数量:', this.processedData.length);
         this.debugLog('最终处理数据:', JSON.stringify(this.processedData, null, 2));
@@ -338,11 +343,11 @@ export class DanmakuHeatmapRenderer {
     handleResize(entry) {
         const newWidth = Math.floor(entry.contentRect.width);
 
-        if (newWidth !== this.options.width && newWidth > 0) {
-            this.debugLog(`容器宽度变化检测: ${this.options.width}px -> ${newWidth}px`);
+        if (newWidth !== this.logicalWidth && newWidth > 0) {
+            this.debugLog(`容器宽度变化检测: ${this.logicalWidth}px -> ${newWidth}px`);
 
             // 立即更新Canvas尺寸以保持视觉连续性
-            this.options.width = newWidth;
+            this.logicalWidth = newWidth;
             this.updateCanvasSize();
 
             // 立即进行临时的缩放渲染，避免热力图消失
@@ -372,7 +377,7 @@ export class DanmakuHeatmapRenderer {
     performQuickResize() {
         if (this.cachedCanvas) {
             // 使用缓存的内容进行快速缩放
-            this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+            this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
             // 计算设备像素比
             const devicePixelRatio = window.devicePixelRatio || 1;
@@ -385,10 +390,10 @@ export class DanmakuHeatmapRenderer {
             this.ctx.drawImage(
                 this.cachedCanvas,
                 0, 0, this.cachedCanvas.width, this.cachedCanvas.height,
-                0, 0, this.options.width, this.options.height
+                0, 0, this.logicalWidth, this.options.height
             );
 
-            this.debugLog(`使用缓存内容进行快速缩放: ${cacheLogicalWidth}x${cacheLogicalHeight} -> ${this.options.width}x${this.options.height}`);
+            this.debugLog(`使用缓存内容进行快速缩放: ${cacheLogicalWidth}x${cacheLogicalHeight} -> ${this.logicalWidth}x${this.options.height}`);
         } else if (this.processedData && this.processedData.length > 0) {
             // 如果没有缓存，进行快速重绘
             this.drawHeatmap();
@@ -432,14 +437,24 @@ export class DanmakuHeatmapRenderer {
         // 获取设备像素比，确保高清显示
         const devicePixelRatio = window.devicePixelRatio || 1;
 
-        this.debugLog('更新Canvas尺寸:', this.options.width, 'x', this.options.height, '设备像素比:', devicePixelRatio);
+        // 计算父容器宽度
+        const container = this.canvas.parentElement || this.parentContainer;
+        let measuredWidth = 0;
+        if (container) {
+            measuredWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
+        }
+        if (!measuredWidth) measuredWidth = Math.floor(this.canvas.getBoundingClientRect().width || 0);
+        if (!measuredWidth) measuredWidth = this.logicalWidth || 800;
+        this.logicalWidth = measuredWidth;
+
+        this.debugLog('更新Canvas尺寸:', this.logicalWidth, 'x', this.options.height, '设备像素比:', devicePixelRatio);
 
         // 设置Canvas的内部分辨率（考虑设备像素比）
-        this.canvas.width = this.options.width * devicePixelRatio;
+        this.canvas.width = this.logicalWidth * devicePixelRatio;
         this.canvas.height = this.options.height * devicePixelRatio;
 
-        // 设置Canvas的CSS显示尺寸
-        this.canvas.style.width = this.options.width + 'px';
+        // 设置Canvas的CSS显示尺寸（宽度使用 100% 以跟随父容器）
+        this.canvas.style.width = '100%';
         this.canvas.style.height = this.options.height + 'px';
 
         // 重新获取上下文（Canvas尺寸变化后上下文会重置）
@@ -530,10 +545,10 @@ export class DanmakuHeatmapRenderer {
 
         try {
             // 清空当前Canvas
-            this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+            this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
             // 计算缩放比例以适应新的Canvas尺寸
-            const scaleX = this.options.width / (this.cachedCanvas.width / (window.devicePixelRatio || 1));
+            const scaleX = this.logicalWidth / (this.cachedCanvas.width / (window.devicePixelRatio || 1));
             const scaleY = this.options.height / (this.cachedCanvas.height / (window.devicePixelRatio || 1));
 
             // 保存当前状态
@@ -562,8 +577,8 @@ export class DanmakuHeatmapRenderer {
      * @returns {HTMLCanvasElement} 渲染好的Canvas元素
      */
     createCanvas(styleOptions = {}) {
-    // 允许 processedData 为空：返回空白（透明）Canvas，供外层正常挂载
-    const noData = !this.processedData || this.processedData.length === 0;
+        // 允许 processedData 为空：返回空白（透明）Canvas，供外层正常挂载
+        const noData = !this.processedData || this.processedData.length === 0;
 
         // 获取设备像素比，确保高清显示
         const devicePixelRatio = window.devicePixelRatio || 1;
@@ -572,8 +587,8 @@ export class DanmakuHeatmapRenderer {
         this.canvas = document.createElement('canvas');
         this.canvas.id = this.options.canvasId; // 使用可自定义的ID
 
-        // 设置Canvas的内部分辨率（考虑设备像素比）
-        this.canvas.width = this.options.width * devicePixelRatio;
+        // 初始内部分辨率（等待插入 DOM 后再由父容器宽度决定实际尺寸）
+        this.canvas.width = Math.max(1, (this.logicalWidth || 1) * devicePixelRatio);
         this.canvas.height = this.options.height * devicePixelRatio;
 
         // 应用默认样式
@@ -596,8 +611,8 @@ export class DanmakuHeatmapRenderer {
         const finalStyle = { ...defaultStyle, ...styleOptions };
         Object.assign(this.canvas.style, finalStyle);
 
-        // 确保CSS显示尺寸正确
-        this.canvas.style.width = this.options.width + 'px';
+        // 自适应宽度
+        this.canvas.style.width = '100%';
         this.canvas.style.height = this.options.height + 'px';
 
         this.ctx = this.canvas.getContext('2d');
@@ -610,27 +625,20 @@ export class DanmakuHeatmapRenderer {
             // 延迟设置，确保Canvas已插入DOM
             setTimeout(() => {
                 this.setupResizeObserver();
+                // 初始化一次尺寸并尝试绘制
+                this.updateCanvasSize();
+                if (!noData) {
+                    this.calculateDensityRange();
+                    this.drawHeatmap();
+                    this.cacheCanvas();
+                    this.lastRenderedWidth = this.logicalWidth;
+                }
             }, 0);
         }
-
         if (noData) {
             // 空数据：不绘制，仅返回空白透明画布
             this.debugLog('空数据：创建空白热力图 Canvas');
-        } else {
-            // 计算密度范围并绘制
-            this.calculateDensityRange();
-            this.debugLog('绘制前数据点映射:');
-            this.debugLog('- 数据段数量:', this.processedData.length);
-            this.debugLog('- 密度范围:', this.minDensity, '到', this.maxDensity);
-            this.debugLog('- Canvas尺寸:', this.options.width, 'x', this.options.height);
-            this.debugLog('- Canvas分辨率:', this.canvas.width, 'x', this.canvas.height);
-            this.debugLog('- 设备像素比:', devicePixelRatio);
-            this.drawHeatmap();
         }
-
-        // 记录初始渲染宽度并缓存结果
-        this.lastRenderedWidth = this.options.width;
-        this.cacheCanvas();
 
         this.debugLog('Canvas创建完成');
         return this.canvas;
@@ -643,10 +651,10 @@ export class DanmakuHeatmapRenderer {
         if (!this.ctx || this.processedData.length === 0) return;
 
         // 清空画布
-        this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+        this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
 
         const paddingVertical = 5;  // 只保留上下边距
-        const graphWidth = this.options.width;  // 使用完整宽度，不减去左右边距
+        const graphWidth = this.logicalWidth;  // 使用完整宽度，不减去左右边距
         const graphHeight = this.options.height - 2 * paddingVertical;
 
         // 计算数据点坐标 - 基于时间
@@ -921,14 +929,14 @@ export class DanmakuHeatmapRenderer {
     showError(message = '热力图渲染失败') {
         if (!this.ctx) return;
 
-        this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+        this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
         this.ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
-        this.ctx.fillRect(0, 0, this.options.width, this.options.height);
+        this.ctx.fillRect(0, 0, this.logicalWidth, this.options.height);
 
         this.ctx.fillStyle = '#dc3545';
         this.ctx.font = '14px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(message, this.options.width / 2, this.options.height / 2);
+        this.ctx.fillText(message, this.logicalWidth / 2, this.options.height / 2);
     }
 
     /**
@@ -980,7 +988,7 @@ export class DanmakuHeatmapRenderer {
             if (!this.rawData || this.rawData.length === 0) {
                 // 无数据：清空画布并缓存空状态
                 this.debugLog('没有原始数据：清空画布并保持空白');
-                this.ctx.clearRect(0, 0, this.options.width, this.options.height);
+                this.ctx.clearRect(0, 0, this.logicalWidth, this.options.height);
                 this.cacheCanvas();
                 return this;
             }
@@ -997,7 +1005,7 @@ export class DanmakuHeatmapRenderer {
             this.drawHeatmap();
 
             // 更新缓存
-            this.lastRenderedWidth = this.options.width;
+            this.lastRenderedWidth = this.logicalWidth;
             this.cacheCanvas();
 
             this.debugLog('重新计算完成');

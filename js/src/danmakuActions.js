@@ -187,51 +187,39 @@ export function generateHeatmap(logger = null) {
     }
 
     try {
-    const width = container.scrollWidth || container.offsetWidth || 3840;
         // 若已有 renderer，复用实例，仅 process 生成画布
         if (!g.heatmapRenderer) {
-            // 尝试从设置中读取热力图样式（JSON 字符串）
-            let styleCfg = null;
+            // 读取样式配置（可选），仅合入已定义的键
+            let cfg = {};
             try {
-                const s = g.danmakuSettings;
-                const raw = s?.get?.('heatmap_style');
-                if (typeof raw === 'string' && raw.trim()) {
-                    styleCfg = JSON.parse(raw);
-                }
-            } catch (_) { styleCfg = null; }
+                const raw = g.danmakuSettings?.get?.('heatmap_style');
+                cfg = raw && raw.trim() ? JSON.parse(raw) : {};
+            } catch (_) { /* ignore */ }
 
-            const baseOptions = {
-                autoResize: true,
+            const styleOpts = ['lineWidth', 'lineColor', 'gradientColorStart', 'gradientColorEnd']
+                .reduce((o, k) => (cfg?.[k] != null ? (o[k] = cfg[k], o) : o), {});
+
+            g.heatmapRenderer = new DanmakuHeatmapRenderer({
                 resizeThreshold: 50,
                 resizeDebounceDelay: 100,
-                debug: true,
-                canvasId: CANVAS_ID
-            };
-            // 若解析成功则将样式合入构造参数（允许覆盖默认）
-            const ctorOptions = { ...baseOptions };
-            if (styleCfg && typeof styleCfg === 'object') {
-                const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg;
-                if (Number.isFinite(lineWidth)) ctorOptions.lineWidth = lineWidth;
-                if (typeof lineColor === 'string') ctorOptions.lineColor = lineColor;
-                if (typeof gradientColorStart === 'string') ctorOptions.gradientColorStart = gradientColorStart;
-                if (typeof gradientColorEnd === 'string') ctorOptions.gradientColorEnd = gradientColorEnd;
-            }
-
-            g.heatmapRenderer = new DanmakuHeatmapRenderer(ctorOptions);
+                debug: false,
+                canvasId: CANVAS_ID,
+                ...styleOpts
+            });
         }
 
         // 初始化后再次确保样式应用（兼容运行中修改样式的场景）
         try {
-            const s = g.danmakuSettings;
-            const raw = s?.get?.('heatmap_style');
-            if (typeof raw === 'string' && raw.trim()) {
-                const styleCfg = JSON.parse(raw);
-                const { lineWidth, lineColor, gradientColorStart, gradientColorEnd } = styleCfg || {};
-                g.heatmapRenderer.updateStyles({ lineWidth, lineColor, gradientColorStart, gradientColorEnd });
+            const raw = g.danmakuSettings?.get?.('heatmap_style');
+            const cfg = raw && raw.trim() ? JSON.parse(raw) : null;
+            if (cfg) {
+                const styleOpts = ['lineWidth', 'lineColor', 'gradientColorStart', 'gradientColorEnd']
+                    .reduce((o, k) => (cfg?.[k] != null ? (o[k] = cfg[k], o) : o), {});
+                g.heatmapRenderer.updateStyles(styleOpts);
             }
         } catch (_) { /* ignore */ }
 
-        const canvas = g.heatmapRenderer.process(heatmapArray, duration, width);
+        const canvas = g.heatmapRenderer.process(heatmapArray, duration);
         canvas.id = CANVAS_ID;
         canvas.setAttribute('data-danmaku-heatmap', 'true');
         container.appendChild(canvas);
@@ -332,58 +320,51 @@ export function renderDanmaku(logger = null) {
     // 仅在不存在实例时创建，避免反复销毁/重建
     if (!g.danmakuRenderer) {
         const danmakuInstance = g.danmakuRenderer = new Danmaku({
-        container: layer,
-        media: videoEl,
-        comments: comments,
-        speed: (() => {
-            try {
-                const v = g.danmakuSettings?.get('speed');
-                const num = Number(v);
-                if (!Number.isFinite(num)) return 144;
-                return Math.min(600, Math.max(24, num));
-            } catch (_) { return 144; }
-        })(),
+            container: layer,
+            media: videoEl,
+            comments: comments,
+            speed: (() => {
+                try {
+                    const v = g.danmakuSettings?.get('speed');
+                    const num = Number(v);
+                    if (!Number.isFinite(num)) return 144;
+                    return Math.min(600, Math.max(24, num));
+                } catch (_) { return 144; }
+            })(),
         });
 
-    // 应用“是否显示”的本地记忆
-    try {
-        const key = 'jf_danmaku_enabled';
-        if (typeof window !== 'undefined' && window.localStorage) {
-            const v = window.localStorage.getItem(key);
-            if (v === null) {
-                try { window.localStorage.setItem(key, '1'); } catch (_) { }
+        // 应用“是否显示”改为使用设置项 enable_danmaku
+        try {
+            const enabled = (g?.danmakuSettings?.asBool?.('enable_danmaku') ?? true);
+            if (enabled) {
                 try { danmakuInstance.show?.(); } catch (_) { }
-                logger?.info?.('弹幕记忆缺失: 默认开启并写入');
-            } else if (v === '0') {
+                logger?.info?.('读取设置: 弹幕初始显示');
+            } else {
                 try { danmakuInstance.hide?.(); } catch (_) { }
-                logger?.info?.('读取记忆: 弹幕初始隐藏');
-            } else if (v === '1') {
-                try { danmakuInstance.show?.(); } catch (_) { }
-                logger?.info?.('读取记忆: 弹幕初始显示');
+                logger?.info?.('读取设置: 弹幕初始隐藏');
             }
-        }
-    } catch (_) { }
+        } catch (_) { }
 
-    // 尺寸自适应
-    if (typeof ResizeObserver !== 'undefined') {
-        const resizeDebounceDelay = 50;
-        let resizeTimer = null;
-        const ro = new ResizeObserver(() => {
-            if (!g.danmakuRenderer) return;
-            if (resizeTimer) clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                try { g.danmakuRenderer.resize(); } catch (_) { }
-            }, resizeDebounceDelay);
-        });
-        try { ro.observe(parent); } catch (_) { }
-        // 存到全局，便于 index.js 主流程在销毁时断开
-        g.__danmakuResizeObserver = ro;
-        g.__danmakuResizeTimerCancel = () => { if (resizeTimer) { try { clearTimeout(resizeTimer); } catch (_) { } resizeTimer = null; } };
-    } else {
-        const handleWindowResize = () => { try { g.danmakuRenderer?.resize?.(); } catch (_) { } };
-        window.addEventListener('resize', handleWindowResize);
-        g.__danmakuWindowResizeHandler = handleWindowResize;
-    }
+        // 尺寸自适应
+        if (typeof ResizeObserver !== 'undefined') {
+            const resizeDebounceDelay = 50;
+            let resizeTimer = null;
+            const ro = new ResizeObserver(() => {
+                if (!g.danmakuRenderer) return;
+                if (resizeTimer) clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    try { g.danmakuRenderer.resize(); } catch (_) { }
+                }, resizeDebounceDelay);
+            });
+            try { ro.observe(parent); } catch (_) { }
+            // 存到全局，便于 index.js 主流程在销毁时断开
+            g.__danmakuResizeObserver = ro;
+            g.__danmakuResizeTimerCancel = () => { if (resizeTimer) { try { clearTimeout(resizeTimer); } catch (_) { } resizeTimer = null; } };
+        } else {
+            const handleWindowResize = () => { try { g.danmakuRenderer?.resize?.(); } catch (_) { } };
+            window.addEventListener('resize', handleWindowResize);
+            g.__danmakuWindowResizeHandler = handleWindowResize;
+        }
 
         logger?.info?.('弹幕渲染器创建完成');
         return { status: 'created', comments: comments.length };

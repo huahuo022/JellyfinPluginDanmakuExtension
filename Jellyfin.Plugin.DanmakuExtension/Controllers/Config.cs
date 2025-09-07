@@ -9,6 +9,7 @@ namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 public class DanmakuConfig
 {
     // dandan 配置
+    public string EnableDanmaku { get; set; } = "true";
     public string ChConvert { get; set; } = "0";
     public string WithRelated { get; set; } = "true";
 

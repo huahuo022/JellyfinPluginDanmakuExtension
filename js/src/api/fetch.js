@@ -21,11 +21,6 @@ export async function updateDanmakuSettings(logger, item_id, danmaku_id) {
         return null;
     }
 
-    // 若没有媒体标识，避免误将默认设置保存到服务器
-    if (!item_id && !danmaku_id) {
-        logger?.info?.('跳过保存：缺少 item_id/danmaku_id');
-        return null;
-    }
 
     try {
         const settingsObj = gSettings.toJSON();
@@ -66,7 +61,7 @@ export async function updateDanmakuSettings(logger, item_id, danmaku_id) {
             }
         }
         g.danmakuData = result;
-        logger?.info?.('全局 danmakuData 已刷新', { 数量: result.comments.length });
+        logger?.info?.('全局 danmakuData 已刷新', { 数量: result.comments?.length?? undefined });
 
         if (item_id || danmaku_id) {
             try {
@@ -97,7 +92,7 @@ export async function updateDanmakuSettings(logger, item_id, danmaku_id) {
                 logger?.warn?.('刷新全局 danmakuData 失败', e);
             }
         } else {
-            logger?.info?.('设置已保存：未提供 item_id / danmaku_id，服务器正常不返回弹幕数据（未执行 _applyDanmakuResponse）');
+            logger?.info?.('设置已保存：未提供 item_id / danmaku_id，服务器正常不返回弹幕数据');
         }
         return result;
     } catch (err) {

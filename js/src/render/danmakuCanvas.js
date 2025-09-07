@@ -1,25 +1,4 @@
 /**
- * 弹幕Canvas渲染引擎
- * 
- * 这是一个基于Canvas的弹幕渲染系统，支持以下功能：
- * - 多种弹幕模式：滚动弹幕（从右到左、从左到右）、固定弹幕（顶部、底部）
- * - 自动碰撞检测和位置分配
- * - 媒体元素同步播放
- * - 高分辨率屏幕适配
- * - 自定义样式和渲染函数
- * - 动态添加弹幕
- * - 性能优化的Canvas渲染
- * 
- * @author WeChat FE Team
- * @version 1.0.0
- */
-
-/**
- * 弹幕Canvas渲染引擎
- * 用于在Canvas上渲染和控制弹幕的显示效果
- */
-
-/**
  * 自动检测浏览器支持的CSS Transform属性
  * 兼容不同浏览器的前缀版本
  */
@@ -58,7 +37,7 @@ var canvasHeightCache = Object.create(null);
  * 远程字体支持（/danmaku/font/ 前缀）
  * - 使用 FontFace 动态加载
  * - 通过 Jellyfin ApiClient.getUrl 生成绝对地址
- * - 结果缓存在 window.__jfDanmakuGlobal__.remoteFontCache 中
+ * - 结果缓存在模块级 fontCache 中
  * - 加载失败回退到系统 sans-serif
  */
 function __getGlobal() {
@@ -70,15 +49,21 @@ function __getGlobal() {
   }
 }
 
-function __getRemoteFontCache() {
-  var g = __getGlobal();
-  g.remoteFontCache = g.remoteFontCache || {};
-  return g.remoteFontCache;
-}
+// 字体缓存
+var fontCache = Object.create(null);
 
 function __normalizeRel(path) {
   // 去除开头的 '/'
   return (path || '').replace(/^\/+/, '');
+}
+
+// 提取样式字符串中的远程字体 URL（/danmaku/font/...）
+function extractRemoteFontUrl(styleFont) {
+  try {
+    if (!styleFont || typeof styleFont !== 'string') return null;
+    var m = styleFont.match(/\/danmaku\/font\/[^"',)\s]+/);
+    return m ? m[0] : null;
+  } catch (_) { return null; }
 }
 
 /**
@@ -89,7 +74,7 @@ function __normalizeRel(path) {
 function ensureRemoteFontLoaded(urlPath) {
   try {
     if (!urlPath || typeof urlPath !== 'string' || urlPath.indexOf('/danmaku/font/') !== 0) return Promise.resolve(null);
-    var cache = __getRemoteFontCache();
+    var cache = fontCache;
     if (cache[urlPath] && cache[urlPath].status === 'loaded') {
       return Promise.resolve(cache[urlPath].family);
     }
@@ -143,12 +128,11 @@ function ensureRemoteFontLoaded(urlPath) {
         // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
         var blob = new Blob([arrBuf], { type: typeHint });
         var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
-        var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', weight: '400', display: 'swap' });
+        var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', display: 'swap' });
         var loaded = await ff.load();
         try { document.fonts.add(loaded); } catch (_) { }
         try { if (objUrl && URL && URL.revokeObjectURL) URL.revokeObjectURL(objUrl); } catch (_) { }
         cache[urlPath] = { status: 'loaded', family: family, fontFace: loaded };
-        try { __getGlobal().danmakuRemoteFontFamilyName = family; } catch (_) { }
         return family;
       } catch (err) {
         cache[urlPath] = { status: 'failed', error: String(err) };
@@ -176,16 +160,16 @@ function maybeRewriteStyleFont(style) {
     var m = style.font.match(/\/danmaku\/font\/[^"',)\s]+/);
     if (!m) return;
     var url = m[0];
-    var cache = __getRemoteFontCache();
+    var cache = fontCache;
     if (cache[url] && cache[url].status === 'loaded' && cache[url].family) {
       var fam = cache[url].family;
       style.font = style.font.replace(url, "'" + fam + "'");
       return;
     }
-    // 未加载或失败：统一先使用安全的回退字体，避免非法 family 导致 Canvas 解析成默认 10px
-    style.font = style.font.replace(url, 'sans-serif');
-    // 异步触发加载；后续新建弹幕会拿到已加载的家族名
-    ensureRemoteFontLoaded(url);
+  // 未加载或加载失败：用安全的回退字体替换占位，保留原字号/行高，避免 Canvas 解析为 10px
+  style.font = style.font.replace(url, 'sans-serif');
+  // 仍然异步尝试加载；加载成功后，后续新建弹幕会使用已加载的家族名
+  ensureRemoteFontLoaded(url);
   } catch (_) { /* ignore */ }
 }
 
@@ -790,7 +774,7 @@ function seek() {
   // 默认策略：按原库逻辑让 position 指向 "当前时间之前的最后一条"，首帧再回填其后仍在持续窗口内的弹幕
   this._.position = Math.max(0, position - 1);
 
-  // 可选：在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现，减少视觉空窗
+  // 在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现
   if (this._.backfillOnSeek) {
     try {
       var ct = this.media.currentTime;
@@ -943,6 +927,33 @@ function init$1(opt) {
 
   this._.paused = true;
 
+  // 首帧字体就绪屏障：在第一条弹幕进入前等待需要的远程字体加载完成
+  // 收集来源：
+  // 1) 传入 comments 的 style.font 中引用的 /danmaku/font/
+  // 2) 全局设置中的 font_family 若为 /danmaku/font/
+  var fontUrls = [];
+  try {
+    for (var fi = 0; fi < this.comments.length; fi++) {
+      var fstyle = this.comments[fi] && this.comments[fi].style;
+      var fu = fstyle && extractRemoteFontUrl(fstyle.font);
+      if (fu) fontUrls.push(fu);
+    }
+  } catch (_) { }
+  try {
+    var g = __getGlobal();
+    var ff = g?.danmakuSettings?.get?.('font_family');
+    if (typeof ff === 'string' && ff.indexOf('/danmaku/font/') === 0) {
+      fontUrls.push(ff);
+    }
+  } catch (_) { }
+  // 去重
+  var needFonts = Array.from(new Set(fontUrls));
+  var waitFontsPromise = Promise.resolve();
+  if (needFonts.length > 0) {
+    waitFontsPromise = Promise.all(needFonts.map(function (u) { return ensureRemoteFontLoaded(u); })).then(function () { }).catch(function () { });
+  }
+  this._.fontReadyPromise = waitFontsPromise;
+
   // 如果有媒体元素，绑定事件监听器
   if (this.media) {
     this._.listener = {};
@@ -978,10 +989,13 @@ function init$1(opt) {
   this._.space = {};
   resetSpace(this._.space);
 
-  // 如果媒体未暂停或没有媒体元素，开始播放
+  // 如果媒体未暂停或没有媒体元素，等待字体就绪后再开始播放，避免首帧字体回退
   if (!this.media || !this.media.paused) {
-    seek.call(this);
-    play.call(this);
+    var self = this;
+    this._.fontReadyPromise.then(function () {
+      seek.call(self);
+      play.call(self);
+    });
   }
   return this;
 }
@@ -1090,11 +1104,15 @@ function show() {
   this._.visible = true;
   // 始终执行 seek 以重建运行列表并触发回填逻辑（即使媒体处于暂停状态）
   // 这样在 hide() -> show() 且视频暂停时，也能看到当前时间窗口内应在屏幕上的弹幕
-  seek.call(this);
-  // 如果媒体正在播放则恢复动画帧；若暂停则 seek 内部已静态渲染一帧
-  if (!(this.media && this.media.paused)) {
-    play.call(this);
-  }
+  var self = this;
+  var p = this._.fontReadyPromise || Promise.resolve();
+  p.then(function () {
+    seek.call(self);
+    // 如果媒体正在播放则恢复动画帧；若暂停则 seek 内部已静态渲染一帧
+    if (!(self.media && self.media.paused)) {
+      play.call(self);
+    }
+  });
   return this;
 }
 

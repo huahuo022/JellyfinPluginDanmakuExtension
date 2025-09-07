@@ -4,6 +4,7 @@
 // 不再负责：插入到控制条 / 轮询 / Mutation 监控（统一由 danmakuExt.js 的存在性监控完成）
 
 import { DanmakuSettingsPanel } from './settingsPanel.js';
+import { updateDanmakuSettings } from '../api/fetch.js';
 
 export class DanmakuButtonsGroup {
     constructor({ logger } = {}) {
@@ -13,8 +14,7 @@ export class DanmakuButtonsGroup {
         this.settingsButton = null;
         this.settingsPanel = new DanmakuSettingsPanel({ logger: this.logger });
         this._globalKeyInterceptor = null; // 聚焦输入时的全局快捷键拦截器
-        this._enabled = false; // 当前开关状态（将尝试从本地存储恢复）
-        this._storageKeyEnabled = 'jf_danmaku_enabled'; // 本地存储 key
+    this._enabled = false; // 当前开关状态（从设置 enable_danmaku 恢复）
         this._toggleRetryTimer = null; // 全局渲染器未就绪时的延迟重试
         this._onToggle = this._onToggle.bind(this);
         this._onOpenSettings = this._onOpenSettings.bind(this);
@@ -62,8 +62,8 @@ export class DanmakuButtonsGroup {
         this.toggleButton = toggleBtn;
         this.settingsButton = settingsBtn;
 
-        // 初次创建后尝试恢复开关状态
-        this._restoreEnabledState();
+    // 初次创建后尝试从设置恢复开关状态
+    this._restoreEnabledStateFromSettings();
         // 应用 UI 标记（不触发日志）
         try {
             group.setAttribute('data-enabled', String(this._enabled));
@@ -84,8 +84,16 @@ export class DanmakuButtonsGroup {
             this.toggleButton?.setAttribute('aria-pressed', this._enabled ? 'true' : 'false');
         } catch (_) { /* no-op */ }
 
-        // 持久化当前状态
-        this._persistEnabledState();
+        // 写回设置
+        try {
+            const g = (typeof window !== 'undefined') ? window.__jfDanmakuGlobal__ : null;
+            if (g?.danmakuSettings?.set) {
+                g.danmakuSettings.set('enable_danmaku', !!this._enabled);
+                updateDanmakuSettings(this.logger || null).catch((err) => {
+                    this.logger?.warn?.('保存设置失败', err);
+                });
+            }
+        } catch (_) { /* ignore */ }
 
         // 与全局弹幕渲染器联动 show/hide
         this._applyVisibilityWithRetry();
@@ -118,21 +126,18 @@ export class DanmakuButtonsGroup {
         }
     }
 
-    _persistEnabledState() {
-        try {
-            if (typeof window === 'undefined' || !window.localStorage) return;
-            window.localStorage.setItem(this._storageKeyEnabled, this._enabled ? '1' : '0');
-        } catch (_) { /* ignore */ }
-    }
-
-    _restoreEnabledState() {
+    _restoreEnabledStateFromSettings() {
         if (this._restored) return; // 只尝试一次
         this._restored = true;
         try {
-            if (typeof window === 'undefined' || !window.localStorage) return;
-            const v = window.localStorage.getItem(this._storageKeyEnabled);
-            if (v === '1') this._enabled = true;
-            if (v === '0') this._enabled = false;
+            const g = (typeof window !== 'undefined') ? window.__jfDanmakuGlobal__ : null;
+            const enabled = (g?.danmakuSettings?.asBool?.('enable_danmaku'));
+            if (typeof enabled === 'boolean') {
+                this._enabled = enabled;
+            } else {
+                // 若缺失设置则使用默认 true
+                this._enabled = true;
+            }
         } catch (_) { /* ignore */ }
     }
 

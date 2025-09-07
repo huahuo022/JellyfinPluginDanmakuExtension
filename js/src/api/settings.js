@@ -16,6 +16,8 @@ export class DanmakuSettings {
         // 定义所有受支持的键：默认值 + 期望类型
         // type: 'number' | 'boolean' | 'string'
         this._schema = Object.freeze({
+            // 基础选项
+            enable_danmaku:     { def: true,       type: 'boolean' },
             chConvert:          { def: '0',        type: 'string'  }, // '0' | '1' | '2'
             withRelated:        { def: 'true',     type: 'string'  }, // 服务器用字符串布尔
             enable_heatmap:     { def: 'combined', type: 'string'  },
