@@ -21,7 +21,7 @@ public partial class Pakku
     {
         // 仅覆盖常见全角 => 半角；可按需扩充
         var map = new Dictionary<char, char>();
-        string full = "！＠＃＄％＾＆＊（）＿＋［］｛｝；：\"，．／＜＞？＼｜｀～１２３４５６７８９０ｑｗｅｒｔｙｕｉｏｐａｓｄｆｇｈｊｋｌｚｘｃｖｂｎｍＱＷＥＲＴＹＵＩＯＰＡＳＤＦＧＨＪＫＬＺＸＣＶＢＮＭ";
+        string full = "！＠＃＄％＾＆＊（）＿＋［］｛｝；：＂＇，．／＜＞？＼｜｀～１２３４５６７８９０ｑｗｅｒｔｙｕｉｏｐａｓｄｆｇｈｊｋｌｚｘｃｖｂｎｍＱＷＥＲＴＹＵＩＯＰＡＳＤＦＧＨＪＫＬＺＸＣＶＢＮＭ";
         string half = "!@#$%^&*()_+[]{};:\"',./<>?\\|`~1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM";
         for (int i = 0; i < Math.Min(full.Length, half.Length); i++) map[full[i]] = half[i];
         map['　'] = ' ';

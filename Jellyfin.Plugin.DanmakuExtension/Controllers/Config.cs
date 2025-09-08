@@ -33,10 +33,10 @@ public class DanmakuConfig
     public bool TrimWidth { get; set; } = true;
     public string HeatmapStyle { get; set; } =
         "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}";
-    public string MarkStyle { get; set; } = "sub_low";
+    public string MarkStyle { get; set; } = "dynamic";
     public int MarkThreshold { get; set; } = 1;
     public bool ModeElevation { get; set; } = true;
-    public bool Enlarge { get; set; } = true;
+    public bool Enlarge { get; set; } = false;
     public int ScrollThreshold { get; set; } = 0;
     public int ShrinkThreshold { get; set; } = 0;
     public int DropThreshold { get; set; } = 0;
@@ -65,8 +65,8 @@ public class DanmakuCommentDto
     [JsonPropertyName("time")] public double Time { get; set; }
     [JsonPropertyName("text")] public string Text { get; set; } = string.Empty;
 
-    // 聚合簇大小（旧 mark_count），紧跟文本，方便前端遍历时相邻读取
-    [JsonPropertyName("mark")] public int Mark { get; set; } = 1;
+    // 聚合簇时间列表：记录该代表弹幕所属簇内所有原始弹幕的时间（单位：秒）
+    [JsonPropertyName("mark_count")] public List<double> markCount { get; set; } = new();
 
     // 模式：rtl / top / bottom / ltr(预留)。数值模式已映射
     [JsonPropertyName("mode")] public string Mode { get; set; } = "rtl";

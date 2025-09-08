@@ -8,7 +8,7 @@ public partial class Pakku
 
 
     #region 数据模型 // Pakku.Models.cs
-    // ======== 数据类型（对齐 pakku 的语义） ========
+    // ======== 数据类型 ========
     public class DanmuObject
     {
         public long cid { get; set; }
@@ -23,8 +23,8 @@ public partial class Pakku
         public int weight { get; set; } = 0;
         public string pool { get; set; } = string.Empty; // 表示字幕源
 
-        // 合并次数标记（用于前端渲染），代表弹幕上为簇大小，普通弹幕默认 1
-        public int mark_count { get; set; } = 1;
+    // 合并标记：改为记录簇内所有原始弹幕的 time_ms 列表；普通弹幕默认为仅包含自身 time_ms
+    public List<double> mark_count { get; set; } = new();
 
         public Extra extra { get; set; } = new();
         public PakkuMeta pakku { get; set; } = new();

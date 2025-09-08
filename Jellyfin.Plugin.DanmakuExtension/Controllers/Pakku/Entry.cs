@@ -64,7 +64,7 @@ public partial class Pakku
                 mode = o.mode,
                 fontsize = cfg.FontSize, // 使用配置的默认字号
                 color = o.color,
-                mark_count = 1
+                mark_count = new List<double> { o.time_ms / 1000.0 }
             }).ToList();
 
             stats.original_total = all.Count;

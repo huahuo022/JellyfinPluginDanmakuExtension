@@ -60,8 +60,8 @@ public partial class Pakku
                 if (rate > 1.001) { rep.fontsize = newSize; rep.pakku.desc.Add($"已放大 {rate:F2} 倍：合并数量为 {c.peers.Count}"); stats.modified_enlarge++; }
             }
 
-            // 记录合并次数，交由前端渲染；不再在后端插入标记文本
-            rep.mark_count = c.peers.Count;
+            // 记录簇内所有原始弹幕的时间列表（秒）
+            rep.mark_count = c.peers.Select(p => p.time_ms / 1000.0).ToList();
             rep.pakku.disp_str = TrimDisp(rep.content);
 
             // 静态顶/底弹幕过宽时转换为滚动
@@ -126,6 +126,7 @@ public partial class Pakku
                         mode = dm.mode,
                         color = dm.color,
                         uid = dm.uid,
+                        mark_count = dm.mark_count,
                         content = dm.content,
                         pakku = new PakkuDeleted { deleted_reason = "弹幕密度" }
                     });

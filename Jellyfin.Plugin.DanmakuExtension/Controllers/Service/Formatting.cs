@@ -15,7 +15,8 @@ public partial class DanmakuService
         => representatives.Select(rep =>
         {
             // 根据 markStyle 和 markThreshold 在后端修改文本内容，前端不再需要单独的 Mark 字段
-            var text = BuildTextWithMark(rep.content, rep.mark_count, markStyle, markThreshold);
+            var markLen = rep.mark_count?.Count ?? 0;
+            var text = BuildTextWithMark(rep.content, markLen, markStyle, markThreshold);
 
             return new DanmakuCommentDto
             {
@@ -23,7 +24,7 @@ public partial class DanmakuService
                 Text = text,
                 Mode = MapMode(rep.mode),
                 Style = BuildStyle(rep, fontFamily),
-                Mark = rep.mark_count,
+                markCount = rep.mark_count ?? new List<double>(),
                 Cid = rep.cid
             };
         }).ToList();

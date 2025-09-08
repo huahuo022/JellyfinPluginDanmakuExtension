@@ -182,6 +182,7 @@ export class CombinedSettingsPage {
       { value: 'sub_low', label: '小写下标' },
       { value: 'sub_pre', label: '前置下标' },
       { value: 'multiply', label: '乘号' },
+      { value: 'dynamic', label: '动态加号' },
     ];
     for (const opt of options) {
       const o = document.createElement('option');

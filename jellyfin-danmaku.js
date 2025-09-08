@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-08T04:58:09.895Z
+ * 构建时间: 2025-09-08T10:35:24.680Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -55,10 +55,10 @@
                 trim_space:         { def: true,       type: 'boolean' },
                 trim_width:         { def: true,       type: 'boolean' },
                 heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}",     type: 'string'  },
-                mark_style:         { def: "sub_low",  type: 'string'  },
+                mark_style:         { def: "dynamic",  type: 'string'  },
                 mark_threshold:     { def: 1,          type: 'number'  },
                 mode_elevation:     { def: true,       type: 'boolean' },
-                enlarge:            { def: true,       type: 'boolean' },
+                enlarge:            { def: false,       type: 'boolean' },
                 scroll_threshold:   { def: 0,          type: 'number'  },
                 shrink_threshold:   { def: 0,          type: 'number'  },
                 drop_threshold:     { def: 0,          type: 'number'  },
@@ -1454,6 +1454,7 @@
           { value: 'sub_low', label: '小写下标' },
           { value: 'sub_pre', label: '前置下标' },
           { value: 'multiply', label: '乘号' },
+          { value: 'dynamic', label: '动态加号' },
         ];
         for (const opt of options) {
           const o = document.createElement('option');
@@ -8638,31 +8639,6 @@
     // }
 
     /**
-     * 自动检测浏览器支持的CSS Transform属性
-     * 兼容不同浏览器的前缀版本
-     */
-    ((function () {
-      /* istanbul ignore next */
-      if (typeof document === 'undefined') return 'transform';
-      var properties = [
-        'oTransform', // Opera 11.5
-        'msTransform', // IE 9
-        'mozTransform',
-        'webkitTransform',
-        'transform'
-      ];
-      var style = document.createElement('div').style;
-      for (var i = 0; i < properties.length; i++) {
-        /* istanbul ignore else */
-        if (properties[i] in style) {
-          return properties[i];
-        }
-      }
-      /* istanbul ignore next */
-      return 'transform';
-    })());
-
-    /**
      * 获取设备像素比，用于高分辨率屏幕适配
      */
     var dpr = typeof window !== 'undefined' && window.devicePixelRatio || 1;
@@ -8781,6 +8757,32 @@
     try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
 
     /**
+     * 是否启用“动态加号”计数标记
+     * 由全局设置 window.__jfDanmakuGlobal__.danmakuSettings 的 mark_style 控制
+     */
+    function isDynamicMarkEnabled() {
+      try {
+        var g = __getGlobal();
+        var val = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_style');
+        return val === 'dynamic';
+      } catch (_) { return false; }
+    }
+
+    /**
+     * 读取合并计数的显示阈值 mark_threshold（严格大于此值才显示），默认 1，范围 1..20
+     */
+    function getMarkThreshold() {
+      try {
+        var g = __getGlobal();
+        var v = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_threshold');
+        var n = Number(v);
+        if (!isFinite(n)) n = 1;
+        if (n < 1) n = 1; else if (n > 20) n = 20;
+        return n;
+      } catch (_) { return 1; }
+    }
+
+    /**
      * 若 style.font 中包含 /danmaku/font/ 路径，则在可用时替换为已加载的家族名；失败则替换为 sans-serif。
      * 注意：该操作是就地修改 style.font。
      */
@@ -8797,10 +8799,10 @@
           style.font = style.font.replace(url, "'" + fam + "'");
           return;
         }
-      // 未加载或加载失败：用安全的回退字体替换占位，保留原字号/行高，避免 Canvas 解析为 10px
-      style.font = style.font.replace(url, 'sans-serif');
-      // 仍然异步尝试加载；加载成功后，后续新建弹幕会使用已加载的家族名
-      ensureRemoteFontLoaded(url);
+        // 未加载或加载失败：用安全的回退字体替换占位，保留原字号/行高，避免 Canvas 解析为 10px
+        style.font = style.font.replace(url, 'sans-serif');
+        // 仍然异步尝试加载；加载成功后，后续新建弹幕会使用已加载的家族名
+        ensureRemoteFontLoaded(url);
       } catch (_) { /* ignore */ }
     }
 
@@ -8996,7 +8998,27 @@
      * @param {Object} cmt - 弹幕对象
      */
     function render(stage, cmt) {
-      stage.context.drawImage(cmt.canvas, cmt.x * dpr, cmt.y * dpr);
+      var ctx = stage.context;
+      var scale = (typeof cmt._scaleCurrent === 'number' && isFinite(cmt._scaleCurrent)) ? cmt._scaleCurrent : 1;
+      if (scale === 1) {
+        ctx.drawImage(cmt.canvas, cmt.x * dpr, cmt.y * dpr);
+        return;
+      }
+      // 以弹幕画布中心为锚点进行缩放，避免位置显著偏移
+      var cx = (cmt.x + cmt.width / 2) * dpr;
+      var cy = (cmt.y + cmt.height / 2) * dpr;
+      ctx.save();
+      try {
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.drawImage(
+          cmt.canvas,
+          - (cmt.width / 2) * dpr,
+          - (cmt.height / 2) * dpr
+        );
+      } finally {
+        ctx.restore();
+      }
     }
 
     /**
@@ -9084,6 +9106,219 @@
       // left 即为插入点
       try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) { }
       return left;
+    }
+
+    /**
+     * 计算已到达的 mark_count 次数（数组需为升序），返回 <= key 的个数
+     * @param {number[]} arr 升序时间数组（单位：秒）
+     * @param {number} key 当前时间（秒）
+     * @returns {number} 计数
+     */
+    function lowerBoundNumber(arr, key) {
+      var l = 0, r = arr.length;
+      while (l < r) {
+        var m = (l + r) >> 1;
+        if (arr[m] <= key) l = m + 1; else r = m;
+      }
+      return l; // 有效个数
+    }
+
+    /**
+     * backOut 缓动（带回弹），t∈[0,1]
+     */
+    function easeBackOut(t) {
+      var s = 1.70158;
+      t = t - 1;
+      return (t * t * ((s + 1) * t + s) + 1);
+    }
+
+    /**
+     * 计算缩放值：触发时瞬间放大到 peak，随后在 duration 秒内“缩小并带回弹”回到 1。
+     */
+    function computeScale(start, nowSec, duration, peak) {
+      if (typeof start !== 'number') return 1;
+      var dt = nowSec - start;
+      if (dt <= 0) return peak || 1.25; // 触发帧：瞬间放大
+      var dur = (duration || 0.35);
+      if (dt >= dur) return 1; // 结束：回到 1
+      var t = dt / dur; // 0->1
+      var k = easeBackOut(t); // 0->1，并在接近 1 时有回弹特性
+      var p = (peak || 1.25) - 1;
+      // 从 peak 向 1 收敛，允许在中后段略微低于 1 形成回弹视觉：s = 1 + p * (1 - k)
+      return 1 + p * (1 - k);
+    }
+
+    /**
+     * 根据 mark_count（时间点列表，秒）动态为弹幕文本追加 " +n" 后缀，并在需要时重建画布
+     * 仅当 n 发生变化时才更新，以降低开销
+     * @param {HTMLCanvasElement} stage 舞台（用于获取字体尺寸）
+     * @param {Object} cmt 弹幕对象（期望包含 mark_count 数组）
+     * @param {number} ct 当前时间（秒）
+     */
+    function updateMarkSuffix(stage, cmt, ct) {
+      try {
+        // 开关：仅在 mark_style === 'dynamic' 时启用此功能
+        var enabled = isDynamicMarkEnabled();
+        if (!enabled) {
+          // 若之前启用过，需恢复基础文本并清理缩放状态
+          if (cmt && (cmt._markShown && cmt._markShown > 0 || typeof cmt.render === 'function')) {
+            cmt._markShown = 0;
+            cmt.render = null;
+            try {
+              cmt.width = undefined; cmt.height = undefined;
+              var fs0 = stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 };
+              cmt.canvas = createCommentCanvas(cmt, fs0);
+            } catch (_) { }
+          }
+          // 清理缩放状态，避免残留动画
+          if (cmt) { cmt._scaleStart = undefined; cmt._scaleCurrent = 1; }
+          return;
+        }
+
+        var list = cmt && cmt.mark_count;
+        if (!Array.isArray(list) || list.length <= 1) {
+          // 无可用计数或仅自身：还原为基础文本渲染
+          if (cmt._markShown && cmt._markShown > 0) {
+            cmt._markShown = 0;
+            cmt.render = null; // 还原
+            try {
+              cmt.width = undefined; cmt.height = undefined;
+              cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
+            } catch (_) { }
+          }
+          return;
+        }
+
+        if (!cmt._markTimes) {
+          // 首次初始化：拷贝并排序，保存基文本
+          try { cmt._markTimes = list.slice().sort(function (a, b) { return a - b; }); } catch (_) { cmt._markTimes = []; }
+          if (!cmt._markBaseText) cmt._markBaseText = (cmt.text == null ? '' : String(cmt.text));
+          cmt._markShown = 0; // 当前已统计显示的计数
+          cmt._markDisplay = false; // 当前是否处于显示状态（受阈值控制）
+        }
+
+        var times = cmt._markTimes;
+        if (!times || times.length === 0) return;
+        // 计算到达总数 reached（本体视为 +1），仅当 reached大于阈值 才显示
+        var reached = lowerBoundNumber(times, ct);
+        var show = reached; // 直接显示 reached（本体+1）
+        var threshold = getMarkThreshold();
+        var displayNow = (show > threshold);
+        var prevDisplay = !!cmt._markDisplay;
+        // 若计数未变且显示状态未变化则跳过
+        if (show === cmt._markShown && displayNow === prevDisplay) return;
+
+        // 仅当计数上升且为 5 的倍数时触发缩放动效
+        if (typeof cmt._markShown === 'number' && show > cmt._markShown) {
+          if (show % 5 === 0) {
+            cmt._scaleStart = ct;
+            cmt._scaleDuration = 0.35; // 秒
+            cmt._scalePeak = 1.25;     // 最大缩放
+          }
+        }
+        cmt._markShown = show;
+        cmt._markDisplay = displayNow;
+
+        // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
+        if (displayNow) {
+          var baseText = cmt._markBaseText;
+          // 提前捕获 style 和字体尺寸
+          var style = cmt.style || {};
+          var fontStr = style.font || '25px sans-serif';
+          var strokeWidth = style.lineWidth * 1;
+          strokeWidth = (strokeWidth > 0 && strokeWidth !== Infinity)
+            ? Math.ceil(strokeWidth)
+            : !!style.strokeStyle * 1;
+          var fsConf = (stage && stage._fontSize) ? stage._fontSize : { root: 16, container: 16 };
+
+          // 颜色阈值：2-10 绿，>10 蓝，>20 橙，>50 红
+          var badgeColor = '#228c4eff';
+          if (show > 30) badgeColor = '#e74c3c';
+          else if (show > 10) badgeColor = '#e67e22';
+          else if (show > 5) badgeColor = '#3498db';
+
+          // 渲染函数（由 createCommentCanvas 调用）
+          cmt.render = function () {
+            // 计算文本尺寸
+            var cvs = document.createElement('canvas');
+            var ctx = cvs.getContext('2d');
+            // 如包含远程字体占位，尽量重写为已加载的家族名
+            var s = Object.assign({}, style);
+            s.font = fontStr;
+            s.textBaseline = s.textBaseline || 'bottom';
+            maybeRewriteStyleFont(s);
+            ctx.font = s.font;
+            var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
+            var th = Math.ceil(canvasHeight(s.font, fsConf));
+
+            // 徽标尺寸（直径）与间距
+            var d = Math.max(6, Math.round(th * 0.6));
+            var r = d / 2;
+            var gap = Math.max(2, Math.round(th * 0.2));
+
+            // 画布尺寸
+            var width = tw + strokeWidth * 2 + gap + d;
+            var height = th + strokeWidth * 2;
+            cvs.width = width * dpr;
+            cvs.height = height * dpr;
+            ctx.scale(dpr, dpr);
+
+            // 应用文本样式
+            for (var key in s) ctx[key] = s[key];
+
+            // 基线
+            var baseline = 0;
+            switch (s.textBaseline) {
+              case 'top':
+              case 'hanging': baseline = strokeWidth; break;
+              case 'middle': baseline = height >> 1; break;
+              default: baseline = height - strokeWidth;
+            }
+
+            // 绘制基础文本
+            if (s.strokeStyle) ctx.strokeText(baseText, strokeWidth, baseline);
+            ctx.fillText(baseText, strokeWidth, baseline);
+
+            // 绘制徽标（与文本底边对齐）
+            var cx = strokeWidth + tw + gap + r;
+            var cy = baseline - r; // 底边对齐：圆底部在 baseline 上
+            ctx.beginPath();
+            ctx.fillStyle = badgeColor;
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 徽标内文字 "+n"
+            var inner = '+' + show;
+            ctx.fillStyle = '#fff';
+            var innerFontPx = Math.max(8, Math.floor(d * 0.6));
+            // 取出字体家族
+            var fam = 'sans-serif';
+            try { var m = s.font.match(/\b\d+(?:\.\d+)?px\s+(.+)$/); if (m) fam = m[1]; } catch (_) { }
+            ctx.font = innerFontPx + 'px ' + fam;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(inner, cx, cy);
+
+            // 恢复文本样式（避免后续误用）
+            ctx.textAlign = undefined;
+            ctx.textBaseline = undefined;
+            return cvs;
+          };
+
+          // 触发重建画布
+          try {
+            cmt.width = undefined; cmt.height = undefined;
+            cmt.canvas = createCommentCanvas(cmt, fsConf);
+          } catch (_) { }
+        } else {
+          // 不展示徽标（reached<=1）：还原基础文本
+          cmt.render = null;
+          try {
+            cmt.width = undefined; cmt.height = undefined;
+            cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
+          } catch (_) { }
+        }
+      } catch (e) { /* ignore */ }
     }
     /**
      * 格式化弹幕模式
@@ -9247,15 +9482,35 @@
         var cmtt = 0;
         var i = 0;
 
-        // 移除过期的弹幕
+        // 移除过期的弹幕（顶/底静态弹幕：若存在 mark_count，则以其中最大值+4s 为截止）
         for (i = this._.runningList.length - 1; i >= 0; i--) {
           cmt = this._.runningList[i];
           cmtt = this.media ? cmt.time : cmt._utc;
-          if (ct - cmtt > this._.duration) {
+          var shouldRemove = false;
+          if (cmt.mode === 'top' || cmt.mode === 'bottom') {
+            var deadline = cmtt + this._.duration;
+            // 仅当动态标记开关开启时，才使用 mark_count 最大值 + 4s 的延长策略
+            if (isDynamicMarkEnabled()) {
+              var lastMark = undefined;
+              if (Array.isArray(cmt._markTimes) && cmt._markTimes.length > 0) {
+                lastMark = cmt._markTimes[cmt._markTimes.length - 1]; // 已排序
+              } else if (Array.isArray(cmt.mark_count) && cmt.mark_count.length > 0) {
+                try { lastMark = Math.max.apply(null, cmt.mark_count); } catch (_) { lastMark = undefined; }
+              }
+              if (typeof lastMark === 'number' && isFinite(lastMark)) {
+                deadline = lastMark + 4; // 直接使用最大 mark 时间 + 4 秒
+              }
+            }
+            shouldRemove = (ct > deadline);
+          } else {
+            shouldRemove = (ct - cmtt > this._.duration);
+          }
+          if (shouldRemove) {
             remove(this._.stage, cmt);
             this._.runningList.splice(i, 1);
           }
         }
+
 
         // 处理待显示的弹幕
         var pendingList = [];
@@ -9278,6 +9533,8 @@
           if (this.media) {
             cmt._utc = dn - (this.media.currentTime - cmt.time);
           }
+          // 基于 mark_count 在进入前先更新一次后缀
+          try { updateMarkSuffix(this._.stage, cmt, ct); } catch (_) { }
           pendingList.push(cmt);
           ++this._.position;
         }
@@ -9295,6 +9552,19 @@
         // 渲染所有正在运行的弹幕
         for (i = 0; i < this._.runningList.length; i++) {
           cmt = this._.runningList[i];
+          // 每帧根据当前时间更新一次 " +n" 后缀，如有变化将重建画布
+          try { updateMarkSuffix(this._.stage, cmt, ct); } catch (_) { }
+          // 缩放动效：在计数增长后的一小段时间内执行回弹缩放
+          if (typeof cmt._scaleStart === 'number') {
+            var s = computeScale(cmt._scaleStart, ct, cmt._scaleDuration, cmt._scalePeak);
+            cmt._scaleCurrent = s;
+            // 动画结束后清理起始标记
+            if (s === 1 && ct - cmt._scaleStart >= (cmt._scaleDuration || 0.35)) {
+              cmt._scaleStart = undefined;
+            }
+          } else {
+            cmt._scaleCurrent = 1;
+          }
           var totalWidth = this._.width + cmt.width;
           var elapsed = totalWidth * (dn - cmt._utc) * pbr / this._.duration;
 
@@ -9845,139 +10115,6 @@
 
     // 定义speed属性的getter和setter
     Object.defineProperty(Danmaku.prototype, 'speed', speed);
-
-    /**
-     * 运行期更新工具：匹配器与样式合并
-     */
-    function __matchCmt(cmt, matcher) {
-      if (!matcher) return false;
-      if (typeof matcher === 'function') return !!matcher(cmt);
-      var t = typeof matcher;
-      if (t === 'string' || t === 'number') return cmt && cmt.id === matcher;
-      if (t === 'object') {
-        for (var k in matcher) {
-          if (Object.prototype.hasOwnProperty.call(matcher, k)) {
-            if (cmt[k] !== matcher[k]) return false;
-          }
-        }
-        return true;
-      }
-      return false;
-    }
-
-    function __mergeStyle(dst, src) {
-      if (!src) return dst || {};
-      var out = Object.assign({}, dst || {});
-      for (var k in src) {
-        if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
-      }
-      return out;
-    }
-
-    /**
-     * 保持当前位置的前提下，宽度变化时调整 _utc，避免弹幕瞬移
-     * 仅对滚动弹幕(rtl/ltr)生效
-     */
-    function __recalcUtcKeepX(ctx, cmt, oldW, newW) {
-      try {
-        if (!cmt || !ctx || !ctx._ || !oldW || !newW || oldW === newW) return;
-        if (!(cmt.mode === 'rtl' || cmt.mode === 'ltr')) return;
-        var widthStage = ctx._.width || 0;
-        var duration = ctx._.duration || 4;
-        var pbr = ctx.media ? (ctx.media.playbackRate || 1) : 1;
-        if (!pbr || pbr <= 0) pbr = 1;
-        var dn = now() / 1000;
-        // 使用统一的时间差计算，避免暂停/播放状态差异
-        var delta = ctx.media ? (ctx.media.currentTime - cmt.time) : (dn - cmt._utc);
-        if (delta < 0) delta = 0;
-        // 先基于旧宽度计算当前 x
-        var totalOld = widthStage + oldW;
-        var elapsedOld = totalOld * delta * pbr / duration;
-        var xKeep = 0;
-        if (cmt.mode === 'ltr') xKeep = elapsedOld - oldW;
-        if (cmt.mode === 'rtl') xKeep = widthStage - elapsedOld;
-        // 反推新的 _utc，使在 dn 时刻位置仍为 xKeep
-        var totalNew = widthStage + newW;
-        var targetElapsed = (cmt.mode === 'ltr') ? (xKeep + newW) : (widthStage - xKeep);
-        var newDelta = targetElapsed * duration / (totalNew * pbr);
-        cmt._utc = dn - newDelta;
-      } catch (_) { /* ignore */ }
-    }
-
-    /**
-     * 更新已在画布上的弹幕（运行列表）。支持按 id、对象匹配或函数匹配。
-     * - 允许更新 text 与 style，必要时会重建 Canvas。
-     * - 对滚动弹幕如宽度改变，会尽量保持当前位置不跳变。
-     * - 不建议在运行期修改 mode/time（将被忽略）。
-     * @param {Function|Object|string|number} matcher
-     * @param {{ text?: string, style?: Object }} patch
-     * @param {{ keepPosition?: boolean }} [opt]
-     * @returns {number} 更新的条数
-     */
-    /* eslint no-invalid-this: 0 */
-    Danmaku.prototype.updateRunning = function (matcher, patch, opt) {
-      opt = opt || {};
-      var keepPos = opt.keepPosition !== undefined ? !!opt.keepPosition : true;
-      if (!this._ || !Array.isArray(this._.runningList) || !patch) return 0;
-      var updated = 0;
-      var fontSize = this._.stage ? this._.stage._fontSize : { root: 16, container: 16 };
-      for (var i = 0; i < this._.runningList.length; i++) {
-        var c = this._.runningList[i];
-        if (!__matchCmt(c, matcher)) continue;
-        var changed = false;
-        var oldW = c.width;
-        if (patch.text !== undefined && String(patch.text) !== c.text) {
-          c.text = String(patch.text);
-          changed = true;
-        }
-        if (patch.style) {
-          c.style = __mergeStyle(c.style, patch.style);
-          changed = true;
-        }
-        if (changed) {
-          // 可能含 /danmaku/font/ 占位，尽量重写到已加载家族
-          try { maybeRewriteStyleFont(c.style); } catch (_) {}
-          // 重建 Canvas 与尺寸
-          try { c.canvas = createCommentCanvas(c, fontSize); } catch (_) { c.canvas = null; }
-          var newW = c.width;
-          if (keepPos && oldW && newW && oldW !== newW) {
-            __recalcUtcKeepX(this, c, oldW, newW);
-          }
-          updated++;
-        }
-      }
-      // 如果当前是暂停状态，需要静态重绘一帧以反映更新
-      if (updated > 0 && (this._.paused || (this.media && this.media.paused))) {
-        try {
-          var ct = this.media ? this.media.currentTime : null;
-          var dnNow = now() / 1000;
-          var pbr = this.media ? (this.media.playbackRate || 1) : 1;
-          this._.engine.framing(this._.stage);
-          for (var j = 0; j < this._.runningList.length; j++) {
-            var rc = this._.runningList[j];
-            var totalW = this._.width + rc.width;
-            var elapsed = this.media
-              ? totalW * (ct - rc.time) * pbr / this._.duration
-              : totalW * (dnNow - rc._utc) * pbr / this._.duration;
-            if (rc.mode === 'ltr') rc.x = elapsed - rc.width;
-            if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
-            if (rc.mode === 'top' || rc.mode === 'bottom') rc.x = (this._.width - rc.width) >> 1;
-            this._.engine.render(this._.stage, rc);
-          }
-        } catch (_) { /* ignore */ }
-      }
-      return updated;
-    };
-
-    /**
-     * 便捷方法：按 id 更新一条或多条正在显示的弹幕。
-     * @param {string|number} id
-     * @param {{ text?: string, style?: Object }} patch
-     * @param {{ keepPosition?: boolean }} [opt]
-     */
-    Danmaku.prototype.updateById = function (id, patch, opt) {
-      return this.updateRunning(id, patch, opt);
-    };
 
     /**
      * 命中检测：在当前运行列表中找到与点击坐标匹配的弹幕
