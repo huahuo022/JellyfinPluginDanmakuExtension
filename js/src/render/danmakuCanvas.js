@@ -57,14 +57,6 @@ function __normalizeRel(path) {
   return (path || '').replace(/^\/+/, '');
 }
 
-// 提取样式字符串中的远程字体 URL（/danmaku/font/...）
-function extractRemoteFontUrl(styleFont) {
-  try {
-    if (!styleFont || typeof styleFont !== 'string') return null;
-    var m = styleFont.match(/\/danmaku\/font\/[^"',)\s]+/);
-    return m ? m[0] : null;
-  } catch (_) { return null; }
-}
 
 /**
  * 确保以 /danmaku/font/ 开头的字体已加载至 document.fonts
@@ -928,17 +920,8 @@ function init$1(opt) {
   this._.paused = true;
 
   // 首帧字体就绪屏障：在第一条弹幕进入前等待需要的远程字体加载完成
-  // 收集来源：
-  // 1) 传入 comments 的 style.font 中引用的 /danmaku/font/
-  // 2) 全局设置中的 font_family 若为 /danmaku/font/
+  // 全局设置中的 font_family 若为 /danmaku/font/
   var fontUrls = [];
-  try {
-    for (var fi = 0; fi < this.comments.length; fi++) {
-      var fstyle = this.comments[fi] && this.comments[fi].style;
-      var fu = fstyle && extractRemoteFontUrl(fstyle.font);
-      if (fu) fontUrls.push(fu);
-    }
-  } catch (_) { }
   try {
     var g = __getGlobal();
     var ff = g?.danmakuSettings?.get?.('font_family');

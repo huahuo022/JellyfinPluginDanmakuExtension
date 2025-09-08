@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-07T22:48:43.396Z
+ * 构建时间: 2025-09-08T04:58:09.895Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -8696,14 +8696,6 @@
       return (path || '').replace(/^\/+/, '');
     }
 
-    // 提取样式字符串中的远程字体 URL（/danmaku/font/...）
-    function extractRemoteFontUrl(styleFont) {
-      try {
-        if (!styleFont || typeof styleFont !== 'string') return null;
-        var m = styleFont.match(/\/danmaku\/font\/[^"',)\s]+/);
-        return m ? m[0] : null;
-      } catch (_) { return null; }
-    }
 
     /**
      * 确保以 /danmaku/font/ 开头的字体已加载至 document.fonts
@@ -9567,17 +9559,8 @@
       this._.paused = true;
 
       // 首帧字体就绪屏障：在第一条弹幕进入前等待需要的远程字体加载完成
-      // 收集来源：
-      // 1) 传入 comments 的 style.font 中引用的 /danmaku/font/
-      // 2) 全局设置中的 font_family 若为 /danmaku/font/
+      // 全局设置中的 font_family 若为 /danmaku/font/
       var fontUrls = [];
-      try {
-        for (var fi = 0; fi < this.comments.length; fi++) {
-          var fstyle = this.comments[fi] && this.comments[fi].style;
-          var fu = fstyle && extractRemoteFontUrl(fstyle.font);
-          if (fu) fontUrls.push(fu);
-        }
-      } catch (_) { }
       try {
         var g = __getGlobal();
         var ff = g?.danmakuSettings?.get?.('font_family');
@@ -9862,6 +9845,139 @@
 
     // 定义speed属性的getter和setter
     Object.defineProperty(Danmaku.prototype, 'speed', speed);
+
+    /**
+     * 运行期更新工具：匹配器与样式合并
+     */
+    function __matchCmt(cmt, matcher) {
+      if (!matcher) return false;
+      if (typeof matcher === 'function') return !!matcher(cmt);
+      var t = typeof matcher;
+      if (t === 'string' || t === 'number') return cmt && cmt.id === matcher;
+      if (t === 'object') {
+        for (var k in matcher) {
+          if (Object.prototype.hasOwnProperty.call(matcher, k)) {
+            if (cmt[k] !== matcher[k]) return false;
+          }
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function __mergeStyle(dst, src) {
+      if (!src) return dst || {};
+      var out = Object.assign({}, dst || {});
+      for (var k in src) {
+        if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+      }
+      return out;
+    }
+
+    /**
+     * 保持当前位置的前提下，宽度变化时调整 _utc，避免弹幕瞬移
+     * 仅对滚动弹幕(rtl/ltr)生效
+     */
+    function __recalcUtcKeepX(ctx, cmt, oldW, newW) {
+      try {
+        if (!cmt || !ctx || !ctx._ || !oldW || !newW || oldW === newW) return;
+        if (!(cmt.mode === 'rtl' || cmt.mode === 'ltr')) return;
+        var widthStage = ctx._.width || 0;
+        var duration = ctx._.duration || 4;
+        var pbr = ctx.media ? (ctx.media.playbackRate || 1) : 1;
+        if (!pbr || pbr <= 0) pbr = 1;
+        var dn = now() / 1000;
+        // 使用统一的时间差计算，避免暂停/播放状态差异
+        var delta = ctx.media ? (ctx.media.currentTime - cmt.time) : (dn - cmt._utc);
+        if (delta < 0) delta = 0;
+        // 先基于旧宽度计算当前 x
+        var totalOld = widthStage + oldW;
+        var elapsedOld = totalOld * delta * pbr / duration;
+        var xKeep = 0;
+        if (cmt.mode === 'ltr') xKeep = elapsedOld - oldW;
+        if (cmt.mode === 'rtl') xKeep = widthStage - elapsedOld;
+        // 反推新的 _utc，使在 dn 时刻位置仍为 xKeep
+        var totalNew = widthStage + newW;
+        var targetElapsed = (cmt.mode === 'ltr') ? (xKeep + newW) : (widthStage - xKeep);
+        var newDelta = targetElapsed * duration / (totalNew * pbr);
+        cmt._utc = dn - newDelta;
+      } catch (_) { /* ignore */ }
+    }
+
+    /**
+     * 更新已在画布上的弹幕（运行列表）。支持按 id、对象匹配或函数匹配。
+     * - 允许更新 text 与 style，必要时会重建 Canvas。
+     * - 对滚动弹幕如宽度改变，会尽量保持当前位置不跳变。
+     * - 不建议在运行期修改 mode/time（将被忽略）。
+     * @param {Function|Object|string|number} matcher
+     * @param {{ text?: string, style?: Object }} patch
+     * @param {{ keepPosition?: boolean }} [opt]
+     * @returns {number} 更新的条数
+     */
+    /* eslint no-invalid-this: 0 */
+    Danmaku.prototype.updateRunning = function (matcher, patch, opt) {
+      opt = opt || {};
+      var keepPos = opt.keepPosition !== undefined ? !!opt.keepPosition : true;
+      if (!this._ || !Array.isArray(this._.runningList) || !patch) return 0;
+      var updated = 0;
+      var fontSize = this._.stage ? this._.stage._fontSize : { root: 16, container: 16 };
+      for (var i = 0; i < this._.runningList.length; i++) {
+        var c = this._.runningList[i];
+        if (!__matchCmt(c, matcher)) continue;
+        var changed = false;
+        var oldW = c.width;
+        if (patch.text !== undefined && String(patch.text) !== c.text) {
+          c.text = String(patch.text);
+          changed = true;
+        }
+        if (patch.style) {
+          c.style = __mergeStyle(c.style, patch.style);
+          changed = true;
+        }
+        if (changed) {
+          // 可能含 /danmaku/font/ 占位，尽量重写到已加载家族
+          try { maybeRewriteStyleFont(c.style); } catch (_) {}
+          // 重建 Canvas 与尺寸
+          try { c.canvas = createCommentCanvas(c, fontSize); } catch (_) { c.canvas = null; }
+          var newW = c.width;
+          if (keepPos && oldW && newW && oldW !== newW) {
+            __recalcUtcKeepX(this, c, oldW, newW);
+          }
+          updated++;
+        }
+      }
+      // 如果当前是暂停状态，需要静态重绘一帧以反映更新
+      if (updated > 0 && (this._.paused || (this.media && this.media.paused))) {
+        try {
+          var ct = this.media ? this.media.currentTime : null;
+          var dnNow = now() / 1000;
+          var pbr = this.media ? (this.media.playbackRate || 1) : 1;
+          this._.engine.framing(this._.stage);
+          for (var j = 0; j < this._.runningList.length; j++) {
+            var rc = this._.runningList[j];
+            var totalW = this._.width + rc.width;
+            var elapsed = this.media
+              ? totalW * (ct - rc.time) * pbr / this._.duration
+              : totalW * (dnNow - rc._utc) * pbr / this._.duration;
+            if (rc.mode === 'ltr') rc.x = elapsed - rc.width;
+            if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
+            if (rc.mode === 'top' || rc.mode === 'bottom') rc.x = (this._.width - rc.width) >> 1;
+            this._.engine.render(this._.stage, rc);
+          }
+        } catch (_) { /* ignore */ }
+      }
+      return updated;
+    };
+
+    /**
+     * 便捷方法：按 id 更新一条或多条正在显示的弹幕。
+     * @param {string|number} id
+     * @param {{ text?: string, style?: Object }} patch
+     * @param {{ keepPosition?: boolean }} [opt]
+     */
+    Danmaku.prototype.updateById = function (id, patch, opt) {
+      return this.updateRunning(id, patch, opt);
+    };
 
     /**
      * 命中检测：在当前运行列表中找到与点击坐标匹配的弹幕

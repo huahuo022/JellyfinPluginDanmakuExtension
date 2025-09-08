@@ -11,8 +11,8 @@ public partial class Pakku
     private static DanmuChunk<DanmuObjectRepresentative> PostCombine(
         List<DanmuCluster> inputClusters,
         List<DanmuCluster> prevClusters,
-    DanmuChunk<DanmuObject> inputChunk,
-    DanmakuConfig cfg,
+        DanmuChunk<DanmuObject> inputChunk,
+        DanmakuConfig cfg,
         Stats stats,
         List<DanmuObjectDeleted> deleted
     )

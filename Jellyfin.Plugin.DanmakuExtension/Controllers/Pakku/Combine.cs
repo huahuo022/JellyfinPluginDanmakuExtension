@@ -239,7 +239,6 @@ public partial class Pakku
 
     private static Ir MakeIgnCluster(int idx, DanmuObject obj, Cacheline cache, DanmuClusterOutput ret, string desc)
     {
-        // 与 pakku 一致：忽略类直接形成“单簇”，chosen_str 用原文
         ret.clusters.Add(new DanmuCluster
         {
             peers = new() { obj },
@@ -250,7 +249,5 @@ public partial class Pakku
     }
 
     #endregion
-
-
 
 }

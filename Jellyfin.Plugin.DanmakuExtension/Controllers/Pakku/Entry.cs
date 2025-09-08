@@ -20,10 +20,6 @@ public partial class Pakku
         var stats = new Stats();
 
         var lists = BuildParsedLists(cfg);
-        // 解析输入（已抽象到独立方法，便于未来多格式扩展）
-
-        // var all = ParseStandardJson(inputData);
-
 
         var sourceStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         sourceStats.EnsureCapacity(all.Count);
@@ -68,7 +64,7 @@ public partial class Pakku
                 mode = o.mode,
                 fontsize = cfg.FontSize, // 使用配置的默认字号
                 color = o.color,
-                mark_count = 0 // 不进行合并，标记数为 0
+                mark_count = 1
             }).ToList();
 
             stats.original_total = all.Count;

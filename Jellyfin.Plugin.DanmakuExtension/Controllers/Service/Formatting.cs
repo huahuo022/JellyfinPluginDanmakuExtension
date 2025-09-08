@@ -23,7 +23,7 @@ public partial class DanmakuService
                 Text = text,
                 Mode = MapMode(rep.mode),
                 Style = BuildStyle(rep, fontFamily),
-                // 前端不再需要 Mark 字段，因此不再赋值（如果 DTO 仍有该属性也可以保持默认）
+                Mark = rep.mark_count,
                 Cid = rep.cid
             };
         }).ToList();
