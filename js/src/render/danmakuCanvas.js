@@ -366,11 +366,8 @@ function render(stage, cmt) {
     ctx.drawImage(cmt.canvas, cmt.x * dpr, cmt.y * dpr);
     return;
   }
-  // 选择缩放锚点：
-  // - 顶部/底部且正在显示徽标时，以“基础文本中心”为锚点，确保文本居中不动；
-  // - 其他情况仍以画布中心为锚点。
-  var isTB = (cmt.mode === 'top' || cmt.mode === 'bottom');
-  var useTextCenter = (isTB && cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number');
+  // 选择缩放锚点：显示徽标时，以“基础文本中心”为锚点；否则以画布中心。
+  var useTextCenter = (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number');
   var pivotInsideX = useTextCenter ? (cmt._textLeft + cmt._textWidth / 2) : (cmt.width / 2);
   var pivotInsideY = cmt.height / 2;
   var cx = (cmt.x + pivotInsideX) * dpr;
@@ -394,6 +391,12 @@ function getOccupiedWidth(cmt) {
   var w = (typeof cmt && cmt ? cmt.width : 0) || 0;
   var rw = (typeof cmt._occupiedWidth === 'number' && isFinite(cmt._occupiedWidth)) ? cmt._occupiedWidth : w;
   return Math.max(w, rw);
+}
+
+// 获取用于运动轨迹的“基础宽度”（不含徽标扩展），以保持本体轨迹不变
+function getMotionWidth(cmt) {
+  if (cmt && typeof cmt._baseWidth === 'number' && isFinite(cmt._baseWidth)) return cmt._baseWidth;
+  return (cmt && typeof cmt.width === 'number' && isFinite(cmt.width)) ? cmt.width : 0;
 }
 
 /**
@@ -561,8 +564,8 @@ function updateMarkSuffix(stage, cmt, ct) {
           cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
         } catch (_) { }
       }
-  // 还原占位宽度
-  if (cmt) cmt._occupiedWidth = undefined;
+      // 还原占位宽度
+      if (cmt) cmt._occupiedWidth = undefined;
       return;
     }
 
@@ -594,8 +597,8 @@ function updateMarkSuffix(stage, cmt, ct) {
     cmt._markShown = show;
     cmt._markDisplay = displayNow;
 
-  // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
-  if (displayNow) {
+    // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
+    if (displayNow) {
       var baseText = cmt._markBaseText;
       // 提前捕获 style 和字体尺寸
       var style = cmt.style || {};
@@ -613,7 +616,7 @@ function updateMarkSuffix(stage, cmt, ct) {
 
       // 渲染函数（由 createCommentCanvas 调用）
       cmt.render = function () {
-  // 计算文本尺寸
+        // 计算文本尺寸
         var cvs = document.createElement('canvas');
         var ctx = cvs.getContext('2d');
         // 如包含远程字体占位，尽量重写为已加载的家族名
@@ -622,15 +625,15 @@ function updateMarkSuffix(stage, cmt, ct) {
         s.textBaseline = s.textBaseline || 'bottom';
         maybeRewriteStyleFont(s);
         ctx.font = s.font;
-  var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
-  var th = Math.ceil(canvasHeight(s.font, fsConf));
+        var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
+        var th = Math.ceil(canvasHeight(s.font, fsConf));
 
         // 徽标尺寸（直径）与间距
         var d = Math.max(6, Math.round(th * 0.6));
         var r = d / 2;
         var gap = Math.max(2, Math.round(th * 0.2));
 
-  // 画布尺寸
+        // 画布尺寸
         var width = tw + strokeWidth * 2 + gap + d;
         var height = th + strokeWidth * 2;
         cvs.width = width * dpr;
@@ -649,7 +652,7 @@ function updateMarkSuffix(stage, cmt, ct) {
           default: baseline = height - strokeWidth;
         }
 
-  // 绘制基础文本
+        // 绘制基础文本
         if (s.strokeStyle) ctx.strokeText(baseText, strokeWidth, baseline);
         ctx.fillText(baseText, strokeWidth, baseline);
 
@@ -695,9 +698,11 @@ function updateMarkSuffix(stage, cmt, ct) {
         var d2 = Math.max(6, Math.round(th2 * 0.6));
         var gap2 = Math.max(2, Math.round(th2 * 0.2));
         var stroke2 = strokeWidth * 2;
-  // 记录基础文本在画布中的绘制信息，便于顶部/底部模式“以文本中心居中”计算
-  cmt._textWidth = tw2; // 基础文本宽度（不含描边两侧 padding）
-  cmt._textLeft = strokeWidth; // 文本起绘 X（等于描边宽度）
+        // 记录基础文本在画布中的绘制信息，便于顶部/底部模式“以文本中心居中”计算
+        cmt._textWidth = tw2; // 基础文本宽度（不含描边两侧 padding）
+        cmt._textLeft = strokeWidth; // 文本起绘 X（等于描边宽度）
+        // 基础运动宽度（不含徽标扩展），用于滚动轨迹计算
+        cmt._baseWidth = tw2 + stroke2;
         cmt._occupiedWidth = tw2 + stroke2 + gap2 + d2;
       } catch (_) { cmt._occupiedWidth = cmt.width; }
     } else {
@@ -710,6 +715,7 @@ function updateMarkSuffix(stage, cmt, ct) {
       cmt._occupiedWidth = undefined;
       cmt._textWidth = undefined;
       cmt._textLeft = undefined;
+      cmt._baseWidth = undefined;
     }
   } catch (e) { /* ignore */ }
 }
@@ -784,23 +790,23 @@ function allocate(cmt) {
     }
 
     // 滚动弹幕需要计算运动轨迹
-  var crW = getOccupiedWidth(cr.cmt || cr);
-  var cmtW = getOccupiedWidth(cmt);
-  var crTotalWidth = that._.width + crW;
+    var crW = getOccupiedWidth(cr.cmt || cr);
+    var cmtW = getOccupiedWidth(cmt);
+    var crTotalWidth = that._.width + crW;
     var crElapsed = crTotalWidth * (ct - cr.time) * pbr / that._.duration;
-  if (crW > crElapsed) {
+    if (crW > crElapsed) {
       return true;
     }
 
     // RTL模式：计算右端移出左侧的时间
     var crLeftTime = that._.duration + cr.time - ct;
-  var cmtTotalWidth = that._.width + cmtW;
+    var cmtTotalWidth = that._.width + cmtW;
     var cmtTime = that.media ? cmt.time : cmt._utc;
     var cmtElapsed = cmtTotalWidth * (ct - cmtTime) * pbr / that._.duration;
     var cmtArrival = that._.width - cmtElapsed;
 
     // RTL模式：计算左端到达左侧的时间
-  var cmtArrivalTime = that._.duration * cmtArrival / (that._.width + cmtW);
+    var cmtArrivalTime = that._.duration * cmtArrival / (that._.width + cmtW);
     return crLeftTime > cmtArrivalTime;
   }
 
@@ -833,9 +839,9 @@ function allocate(cmt) {
   var crObj = {
     range: channel + cmt.height,
     time: this.media ? cmt.time : cmt._utc,
-  width: getOccupiedWidth(cmt),
-  height: cmt.height,
-  cmt: cmt
+    width: getOccupiedWidth(cmt),
+    height: cmt.height,
+    cmt: cmt
   };
   crs.splice(last + 1, curr - last - 1, crObj);
 
@@ -961,13 +967,14 @@ function createEngine(framing, setup, render, remove) {
       } else {
         cmt._scaleCurrent = 1;
       }
-  var ocw = getOccupiedWidth(cmt);
-  var totalWidth = this._.width + ocw;
+      var ocw = getOccupiedWidth(cmt);
+      var mw = getMotionWidth(cmt);
+      var totalWidth = this._.width + mw; // 使用基础宽度计算轨迹
       var elapsed = totalWidth * (dn - cmt._utc) * pbr / this._.duration;
 
       // 根据弹幕模式计算X坐标
-      if (cmt.mode === 'ltr') cmt.x = elapsed - ocw;              // 左到右
-      if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左
+      if (cmt.mode === 'ltr') cmt.x = elapsed - mw;               // 左到右（基础宽度）
+      if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左（基础宽度）
       if (cmt.mode === 'top' || cmt.mode === 'bottom') {          // 顶部/底部：保持“文本”居中不动，徽标向右扩展
         if (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number') {
           // 画布中“文本中心”相对画布左的偏移
@@ -1122,10 +1129,11 @@ function seek() {
             var pbr = this.media ? this.media.playbackRate : 1;
             for (var k = 0; k < this._.runningList.length; k++) {
               var rc = this._.runningList[k];
-              var totalWidth = this._.width + rc.width;
-              // 使用 media.currentTime 保持与真正播放时的一致位置
+              var baseW = (typeof rc._baseWidth === 'number' && isFinite(rc._baseWidth)) ? rc._baseWidth : rc.width;
+              var totalWidth = this._.width + baseW;
+              // 使用 media.currentTime 保持与真正播放时的一致位置（基础宽度）
               var elapsed = totalWidth * (ct - rc.time) * pbr / this._.duration;
-              if (rc.mode === 'ltr') rc.x = elapsed - rc.width;
+              if (rc.mode === 'ltr') rc.x = elapsed - baseW;
               if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
               if (rc.mode === 'top' || rc.mode === 'bottom') {
                 if (rc._markDisplay && typeof rc._textWidth === 'number' && typeof rc._textLeft === 'number') {
@@ -1779,9 +1787,10 @@ Danmaku.prototype.replaceComments = function (newComments, opt) {
     for (var ri = 0; ri < visibleList.length; ri++) {
       var vc = visibleList[ri];
       // 根据模式计算 x（复制 engine 内逻辑）
-      var totalWidth = this._.width + vc.width;
+      var baseW = (typeof vc._baseWidth === 'number' && isFinite(vc._baseWidth)) ? vc._baseWidth : vc.width;
+      var totalWidth = this._.width + baseW;
       var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
-      if (vc.mode === 'ltr') vc.x = elapsed - vc.width;
+      if (vc.mode === 'ltr') vc.x = elapsed - baseW;
       if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
       if (vc.mode === 'top' || vc.mode === 'bottom') {
         if (vc._markDisplay && typeof vc._textWidth === 'number' && typeof vc._textLeft === 'number') {

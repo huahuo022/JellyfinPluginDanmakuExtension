@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-08T14:59:29.845Z
+ * 构建时间: 2025-09-08T15:30:55.351Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -9004,11 +9004,8 @@
         ctx.drawImage(cmt.canvas, cmt.x * dpr, cmt.y * dpr);
         return;
       }
-      // 选择缩放锚点：
-      // - 顶部/底部且正在显示徽标时，以“基础文本中心”为锚点，确保文本居中不动；
-      // - 其他情况仍以画布中心为锚点。
-      var isTB = (cmt.mode === 'top' || cmt.mode === 'bottom');
-      var useTextCenter = (isTB && cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number');
+      // 选择缩放锚点：显示徽标时，以“基础文本中心”为锚点；否则以画布中心。
+      var useTextCenter = (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number');
       var pivotInsideX = useTextCenter ? (cmt._textLeft + cmt._textWidth / 2) : (cmt.width / 2);
       var pivotInsideY = cmt.height / 2;
       var cx = (cmt.x + pivotInsideX) * dpr;
@@ -9032,6 +9029,12 @@
       var w = (typeof cmt && cmt ? cmt.width : 0) || 0;
       var rw = (typeof cmt._occupiedWidth === 'number' && isFinite(cmt._occupiedWidth)) ? cmt._occupiedWidth : w;
       return Math.max(w, rw);
+    }
+
+    // 获取用于运动轨迹的“基础宽度”（不含徽标扩展），以保持本体轨迹不变
+    function getMotionWidth(cmt) {
+      if (cmt && typeof cmt._baseWidth === 'number' && isFinite(cmt._baseWidth)) return cmt._baseWidth;
+      return (cmt && typeof cmt.width === 'number' && isFinite(cmt.width)) ? cmt.width : 0;
     }
 
     /**
@@ -9336,6 +9339,8 @@
       // 记录基础文本在画布中的绘制信息，便于顶部/底部模式“以文本中心居中”计算
       cmt._textWidth = tw2; // 基础文本宽度（不含描边两侧 padding）
       cmt._textLeft = strokeWidth; // 文本起绘 X（等于描边宽度）
+            // 基础运动宽度（不含徽标扩展），用于滚动轨迹计算
+            cmt._baseWidth = tw2 + stroke2;
             cmt._occupiedWidth = tw2 + stroke2 + gap2 + d2;
           } catch (_) { cmt._occupiedWidth = cmt.width; }
         } else {
@@ -9345,9 +9350,10 @@
             cmt.width = undefined; cmt.height = undefined;
             cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
           } catch (_) { }
-          cmt._occupiedWidth = undefined;
-          cmt._textWidth = undefined;
-          cmt._textLeft = undefined;
+      cmt._occupiedWidth = undefined;
+      cmt._textWidth = undefined;
+      cmt._textLeft = undefined;
+      cmt._baseWidth = undefined;
         }
       } catch (e) { /* ignore */ }
     }
@@ -9600,12 +9606,13 @@
             cmt._scaleCurrent = 1;
           }
       var ocw = getOccupiedWidth(cmt);
-      var totalWidth = this._.width + ocw;
+      var mw = getMotionWidth(cmt);
+      var totalWidth = this._.width + mw; // 使用基础宽度计算轨迹
           var elapsed = totalWidth * (dn - cmt._utc) * pbr / this._.duration;
 
           // 根据弹幕模式计算X坐标
-          if (cmt.mode === 'ltr') cmt.x = elapsed - ocw;              // 左到右
-          if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左
+      if (cmt.mode === 'ltr') cmt.x = elapsed - mw;               // 左到右（基础宽度）
+      if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左（基础宽度）
           if (cmt.mode === 'top' || cmt.mode === 'bottom') {          // 顶部/底部：保持“文本”居中不动，徽标向右扩展
             if (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number') {
               // 画布中“文本中心”相对画布左的偏移
@@ -9760,10 +9767,11 @@
                 var pbr = this.media ? this.media.playbackRate : 1;
                 for (var k = 0; k < this._.runningList.length; k++) {
                   var rc = this._.runningList[k];
-                  var totalWidth = this._.width + rc.width;
-                  // 使用 media.currentTime 保持与真正播放时的一致位置
+                  var baseW = (typeof rc._baseWidth === 'number' && isFinite(rc._baseWidth)) ? rc._baseWidth : rc.width;
+                  var totalWidth = this._.width + baseW;
+                  // 使用 media.currentTime 保持与真正播放时的一致位置（基础宽度）
                   var elapsed = totalWidth * (ct - rc.time) * pbr / this._.duration;
-                  if (rc.mode === 'ltr') rc.x = elapsed - rc.width;
+                  if (rc.mode === 'ltr') rc.x = elapsed - baseW;
                   if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
                   if (rc.mode === 'top' || rc.mode === 'bottom') {
                     if (rc._markDisplay && typeof rc._textWidth === 'number' && typeof rc._textLeft === 'number') {
@@ -10417,10 +10425,11 @@
         for (var ri = 0; ri < visibleList.length; ri++) {
           var vc = visibleList[ri];
           // 根据模式计算 x（复制 engine 内逻辑）
-          var totalWidth = this._.width + vc.width;
-          var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
-          if (vc.mode === 'ltr') vc.x = elapsed - vc.width;
-          if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
+      var baseW = (typeof vc._baseWidth === 'number' && isFinite(vc._baseWidth)) ? vc._baseWidth : vc.width;
+      var totalWidth = this._.width + baseW;
+      var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
+      if (vc.mode === 'ltr') vc.x = elapsed - baseW;
+      if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
           if (vc.mode === 'top' || vc.mode === 'bottom') {
             if (vc._markDisplay && typeof vc._textWidth === 'number' && typeof vc._textLeft === 'number') {
               var __tc = vc._textLeft + vc._textWidth / 2;
