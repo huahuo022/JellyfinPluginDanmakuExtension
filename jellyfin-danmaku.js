@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-08T10:35:24.680Z
+ * 构建时间: 2025-09-08T14:59:29.845Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -7984,7 +7984,7 @@
                 measuredWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
             }
             if (!measuredWidth) measuredWidth = Math.floor(this.canvas.getBoundingClientRect().width || 0);
-            if (!measuredWidth) measuredWidth = this.logicalWidth || 800;
+            if (!measuredWidth) measuredWidth = this.logicalWidth || 3840;
             this.logicalWidth = measuredWidth;
 
             this.debugLog('更新Canvas尺寸:', this.logicalWidth, 'x', this.options.height, '设备像素比:', devicePixelRatio);
@@ -9004,21 +9004,34 @@
         ctx.drawImage(cmt.canvas, cmt.x * dpr, cmt.y * dpr);
         return;
       }
-      // 以弹幕画布中心为锚点进行缩放，避免位置显著偏移
-      var cx = (cmt.x + cmt.width / 2) * dpr;
-      var cy = (cmt.y + cmt.height / 2) * dpr;
+      // 选择缩放锚点：
+      // - 顶部/底部且正在显示徽标时，以“基础文本中心”为锚点，确保文本居中不动；
+      // - 其他情况仍以画布中心为锚点。
+      var isTB = (cmt.mode === 'top' || cmt.mode === 'bottom');
+      var useTextCenter = (isTB && cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number');
+      var pivotInsideX = useTextCenter ? (cmt._textLeft + cmt._textWidth / 2) : (cmt.width / 2);
+      var pivotInsideY = cmt.height / 2;
+      var cx = (cmt.x + pivotInsideX) * dpr;
+      var cy = (cmt.y + pivotInsideY) * dpr;
       ctx.save();
       try {
         ctx.translate(cx, cy);
         ctx.scale(scale, scale);
         ctx.drawImage(
           cmt.canvas,
-          - (cmt.width / 2) * dpr,
-          - (cmt.height / 2) * dpr
+          - pivotInsideX * dpr,
+          - pivotInsideY * dpr
         );
       } finally {
         ctx.restore();
       }
+    }
+
+    // 获取用于碰撞与路径计算的“占位宽度”，优先使用预留宽度
+    function getOccupiedWidth(cmt) {
+      var w = (typeof cmt && cmt ? cmt.width : 0) || 0;
+      var rw = (typeof cmt._occupiedWidth === 'number' && isFinite(cmt._occupiedWidth)) ? cmt._occupiedWidth : w;
+      return Math.max(w, rw);
     }
 
     /**
@@ -9186,6 +9199,8 @@
               cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
             } catch (_) { }
           }
+      // 还原占位宽度
+      if (cmt) cmt._occupiedWidth = undefined;
           return;
         }
 
@@ -9208,19 +9223,17 @@
         // 若计数未变且显示状态未变化则跳过
         if (show === cmt._markShown && displayNow === prevDisplay) return;
 
-        // 仅当计数上升且为 5 的倍数时触发缩放动效
-        if (typeof cmt._markShown === 'number' && show > cmt._markShown) {
-          if (show % 5 === 0) {
-            cmt._scaleStart = ct;
-            cmt._scaleDuration = 0.35; // 秒
-            cmt._scalePeak = 1.25;     // 最大缩放
-          }
+        // 计数每次递增且超过 5 时触发缩放动效
+        if (typeof cmt._markShown === 'number' && show > cmt._markShown && show > 5) {
+          cmt._scaleStart = ct;
+          cmt._scaleDuration = 0.35; // 秒
+          cmt._scalePeak = 1.25;     // 最大缩放
         }
         cmt._markShown = show;
         cmt._markDisplay = displayNow;
 
-        // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
-        if (displayNow) {
+      // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
+      if (displayNow) {
           var baseText = cmt._markBaseText;
           // 提前捕获 style 和字体尺寸
           var style = cmt.style || {};
@@ -9231,15 +9244,14 @@
             : !!style.strokeStyle * 1;
           var fsConf = (stage && stage._fontSize) ? stage._fontSize : { root: 16, container: 16 };
 
-          // 颜色阈值：2-10 绿，>10 蓝，>20 橙，>50 红
-          var badgeColor = '#228c4eff';
+          // 颜色阈值：<10 蓝，>10 橙，>30 红（无绿色）
+          var badgeColor = '#3498db';
           if (show > 30) badgeColor = '#e74c3c';
           else if (show > 10) badgeColor = '#e67e22';
-          else if (show > 5) badgeColor = '#3498db';
 
           // 渲染函数（由 createCommentCanvas 调用）
           cmt.render = function () {
-            // 计算文本尺寸
+      // 计算文本尺寸
             var cvs = document.createElement('canvas');
             var ctx = cvs.getContext('2d');
             // 如包含远程字体占位，尽量重写为已加载的家族名
@@ -9248,15 +9260,15 @@
             s.textBaseline = s.textBaseline || 'bottom';
             maybeRewriteStyleFont(s);
             ctx.font = s.font;
-            var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
-            var th = Math.ceil(canvasHeight(s.font, fsConf));
+      var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
+      var th = Math.ceil(canvasHeight(s.font, fsConf));
 
             // 徽标尺寸（直径）与间距
             var d = Math.max(6, Math.round(th * 0.6));
             var r = d / 2;
             var gap = Math.max(2, Math.round(th * 0.2));
 
-            // 画布尺寸
+      // 画布尺寸
             var width = tw + strokeWidth * 2 + gap + d;
             var height = th + strokeWidth * 2;
             cvs.width = width * dpr;
@@ -9275,7 +9287,7 @@
               default: baseline = height - strokeWidth;
             }
 
-            // 绘制基础文本
+      // 绘制基础文本
             if (s.strokeStyle) ctx.strokeText(baseText, strokeWidth, baseline);
             ctx.fillText(baseText, strokeWidth, baseline);
 
@@ -9287,8 +9299,8 @@
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // 徽标内文字 "+n"
-            var inner = '+' + show;
+            // 徽标内文字
+            // var inner = '+' + show;
             ctx.fillStyle = '#fff';
             var innerFontPx = Math.max(8, Math.floor(d * 0.6));
             // 取出字体家族
@@ -9297,7 +9309,7 @@
             ctx.font = innerFontPx + 'px ' + fam;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(inner, cx, cy);
+            ctx.fillText(show, cx, cy);
 
             // 恢复文本样式（避免后续误用）
             ctx.textAlign = undefined;
@@ -9310,6 +9322,22 @@
             cmt.width = undefined; cmt.height = undefined;
             cmt.canvas = createCommentCanvas(cmt, fsConf);
           } catch (_) { }
+          // 预估占位宽度（文本宽度 + gap + 徽标直径）。这里使用最新绘制的 canvas 宽度作为基准
+          try {
+            var textCanvas = document.createElement('canvas');
+            var tctx = textCanvas.getContext('2d');
+            var s2 = Object.assign({}, style); s2.font = fontStr; s2.textBaseline = s2.textBaseline || 'bottom'; maybeRewriteStyleFont(s2);
+            tctx.font = s2.font;
+            var tw2 = Math.max(1, Math.ceil(tctx.measureText(baseText).width));
+            var th2 = Math.ceil(canvasHeight(s2.font, fsConf));
+            var d2 = Math.max(6, Math.round(th2 * 0.6));
+            var gap2 = Math.max(2, Math.round(th2 * 0.2));
+            var stroke2 = strokeWidth * 2;
+      // 记录基础文本在画布中的绘制信息，便于顶部/底部模式“以文本中心居中”计算
+      cmt._textWidth = tw2; // 基础文本宽度（不含描边两侧 padding）
+      cmt._textLeft = strokeWidth; // 文本起绘 X（等于描边宽度）
+            cmt._occupiedWidth = tw2 + stroke2 + gap2 + d2;
+          } catch (_) { cmt._occupiedWidth = cmt.width; }
         } else {
           // 不展示徽标（reached<=1）：还原基础文本
           cmt.render = null;
@@ -9317,6 +9345,9 @@
             cmt.width = undefined; cmt.height = undefined;
             cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
           } catch (_) { }
+          cmt._occupiedWidth = undefined;
+          cmt._textWidth = undefined;
+          cmt._textLeft = undefined;
         }
       } catch (e) { /* ignore */ }
     }
@@ -9391,21 +9422,23 @@
         }
 
         // 滚动弹幕需要计算运动轨迹
-        var crTotalWidth = that._.width + cr.width;
+      var crW = getOccupiedWidth(cr.cmt || cr);
+      var cmtW = getOccupiedWidth(cmt);
+      var crTotalWidth = that._.width + crW;
         var crElapsed = crTotalWidth * (ct - cr.time) * pbr / that._.duration;
-        if (cr.width > crElapsed) {
+      if (crW > crElapsed) {
           return true;
         }
 
         // RTL模式：计算右端移出左侧的时间
         var crLeftTime = that._.duration + cr.time - ct;
-        var cmtTotalWidth = that._.width + cmt.width;
+      var cmtTotalWidth = that._.width + cmtW;
         var cmtTime = that.media ? cmt.time : cmt._utc;
         var cmtElapsed = cmtTotalWidth * (ct - cmtTime) * pbr / that._.duration;
         var cmtArrival = that._.width - cmtElapsed;
 
         // RTL模式：计算左端到达左侧的时间
-        var cmtArrivalTime = that._.duration * cmtArrival / (that._.width + cmt.width);
+      var cmtArrivalTime = that._.duration * cmtArrival / (that._.width + cmtW);
         return crLeftTime > cmtArrivalTime;
       }
 
@@ -9438,8 +9471,9 @@
       var crObj = {
         range: channel + cmt.height,
         time: this.media ? cmt.time : cmt._utc,
-        width: cmt.width,
-        height: cmt.height
+      width: getOccupiedWidth(cmt),
+      height: cmt.height,
+      cmt: cmt
       };
       crs.splice(last + 1, curr - last - 1, crObj);
 
@@ -9565,14 +9599,23 @@
           } else {
             cmt._scaleCurrent = 1;
           }
-          var totalWidth = this._.width + cmt.width;
+      var ocw = getOccupiedWidth(cmt);
+      var totalWidth = this._.width + ocw;
           var elapsed = totalWidth * (dn - cmt._utc) * pbr / this._.duration;
 
           // 根据弹幕模式计算X坐标
-          if (cmt.mode === 'ltr') cmt.x = elapsed - cmt.width;        // 左到右
+          if (cmt.mode === 'ltr') cmt.x = elapsed - ocw;              // 左到右
           if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左
-          if (cmt.mode === 'top' || cmt.mode === 'bottom') {          // 顶部/底部居中
-            cmt.x = (this._.width - cmt.width) >> 1;
+          if (cmt.mode === 'top' || cmt.mode === 'bottom') {          // 顶部/底部：保持“文本”居中不动，徽标向右扩展
+            if (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number') {
+              // 画布中“文本中心”相对画布左的偏移
+              var textCenterOffset = cmt._textLeft + cmt._textWidth / 2;
+              // 令文本中心对齐舞台中心：x + textCenterOffset = width/2
+              cmt.x = (this._.width / 2) - textCenterOffset;
+            } else {
+              // 无徽标或无记录时，退回以整体居中
+              cmt.x = (this._.width - ocw) >> 1;
+            }
           }
           render(this._.stage, cmt);
         }
@@ -9722,7 +9765,14 @@
                   var elapsed = totalWidth * (ct - rc.time) * pbr / this._.duration;
                   if (rc.mode === 'ltr') rc.x = elapsed - rc.width;
                   if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
-                  if (rc.mode === 'top' || rc.mode === 'bottom') rc.x = (this._.width - rc.width) >> 1;
+                  if (rc.mode === 'top' || rc.mode === 'bottom') {
+                    if (rc._markDisplay && typeof rc._textWidth === 'number' && typeof rc._textLeft === 'number') {
+                      var _tc = rc._textLeft + rc._textWidth / 2;
+                      rc.x = (this._.width / 2) - _tc;
+                    } else {
+                      rc.x = (this._.width - rc.width) >> 1;
+                    }
+                  }
                   this._.engine.render(this._.stage, rc);
                 }
               } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) { } }
@@ -10371,7 +10421,14 @@
           var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
           if (vc.mode === 'ltr') vc.x = elapsed - vc.width;
           if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
-          if (vc.mode === 'top' || vc.mode === 'bottom') vc.x = (this._.width - vc.width) >> 1;
+          if (vc.mode === 'top' || vc.mode === 'bottom') {
+            if (vc._markDisplay && typeof vc._textWidth === 'number' && typeof vc._textLeft === 'number') {
+              var __tc = vc._textLeft + vc._textWidth / 2;
+              vc.x = (this._.width / 2) - __tc;
+            } else {
+              vc.x = (this._.width - vc.width) >> 1;
+            }
+          }
           this._.engine.render(this._.stage, vc);
         }
       } catch (e) { /* ignore */ }

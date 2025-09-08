@@ -444,7 +444,7 @@ export class DanmakuHeatmapRenderer {
             measuredWidth = Math.floor(container.clientWidth || container.getBoundingClientRect().width || 0);
         }
         if (!measuredWidth) measuredWidth = Math.floor(this.canvas.getBoundingClientRect().width || 0);
-        if (!measuredWidth) measuredWidth = this.logicalWidth || 800;
+        if (!measuredWidth) measuredWidth = this.logicalWidth || 3840;
         this.logicalWidth = measuredWidth;
 
         this.debugLog('更新Canvas尺寸:', this.logicalWidth, 'x', this.options.height, '设备像素比:', devicePixelRatio);
