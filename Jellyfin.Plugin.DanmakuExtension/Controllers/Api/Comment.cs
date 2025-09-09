@@ -155,42 +155,5 @@ public partial class DanmakuController
     }
     #endregion
 
-    #region GET search
-    // 代理 dandan 搜索接口：/api/v2/search/anime?keyword=...
-    [HttpGet("search")]
-    [Produces("application/json")]
-    public async Task<IActionResult> SearchAnime(
-        [FromQuery(Name = "keyword")] string? keyword = null,
-        [FromQuery(Name = "bangumi_id")] string? bangumiId = null)
-    {
-        try
-        {
-            var baseUrl = _danmakuService.GetBaseUrl();
-            string? path = null;
-
-            if (!string.IsNullOrWhiteSpace(bangumiId))
-            {
-                path = $"/api/v2/bangumi/{Uri.EscapeDataString(bangumiId)}";
-            }
-            else if (!string.IsNullOrWhiteSpace(keyword))
-            {
-                path = $"/api/v2/search/anime?keyword={Uri.EscapeDataString(keyword)}";
-            }
-            else
-            {
-                return BadRequest("keyword or bangumi_id is required");
-            }
-
-            var json = await _danmakuService.SendWithCacheAsync(HttpMethod.Get, baseUrl, path);
-            return Content(json, "application/json", Encoding.UTF8);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error searching anime");
-            return StatusCode(500, $"Error searching anime: {ex.Message}");
-        }
-    }
-    #endregion
-
 
 }
