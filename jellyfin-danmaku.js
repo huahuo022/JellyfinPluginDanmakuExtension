@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-08T15:30:55.351Z
+ * 构建时间: 2025-09-09T14:23:06.014Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -8638,40 +8638,101 @@
     //     window.DanmakuHeatmapRenderer = DanmakuHeatmapRenderer;
     // }
 
-    /**
-     * 获取设备像素比，用于高分辨率屏幕适配
-     */
-    var dpr = typeof window !== 'undefined' && window.devicePixelRatio || 1;
+    // 通用纯工具函数集合，供渲染模块复用（以秒为单位的时间）
 
     /**
-     * Canvas高度缓存，避免重复计算字体高度
+     * 二分查找：返回插入位置 (0..arr.length)
+     * @param {Array<object>} arr 已按 arr[i][prop] 升序排序
+     * @param {string} prop 比较属性名
+     * @param {number} key 目标值
+     * @returns {number}
      */
-    var canvasHeightCache = Object.create(null);
-
-    /**
-     * 远程字体支持（/danmaku/font/ 前缀）
-     * - 使用 FontFace 动态加载
-     * - 通过 Jellyfin ApiClient.getUrl 生成绝对地址
-     * - 结果缓存在模块级 fontCache 中
-     * - 加载失败回退到系统 sans-serif
-     */
-    function __getGlobal() {
-      try {
-        // eslint-disable-next-line no-return-assign
-        return (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {});
-      } catch (_) {
-        return {};
+    function binsearch(arr, prop, key) {
+      var left = 0;
+      var right = arr.length; // [left, right)
+      while (left < right) {
+        var mid = (left + right) >> 1;
+        var v = arr[mid][prop];
+        if (v <= key) left = mid + 1; else right = mid;
       }
+      return left;
     }
 
-    // 字体缓存
+    /** 模式标准化 */
+    function formatMode(mode) {
+      if (!/^(ltr|top|bottom)$/i.test(mode)) return 'rtl';
+      return String(mode || '').toLowerCase();
+    }
+
+    /** backOut 缓动（带回弹），t∈[0,1] */
+    function easeBackOut(t) {
+      var s = 1.70158;
+      t = t - 1;
+      return (t * t * ((s + 1) * t + s) + 1);
+    }
+
+    /**
+     * 计算缩放值：触发时瞬间放大到 peak，随后在 duration 秒内“缩小并带回弹”回到 1。
+     */
+    function computeScale(start, nowSec, duration, peak) {
+      if (typeof start !== 'number') return 1;
+      var dt = nowSec - start;
+      if (dt <= 0) return peak || 1.25;
+      var dur = (duration || 0.35);
+      if (dt >= dur) return 1;
+      var t = dt / dur;
+      var k = easeBackOut(t);
+      var p = (peak || 1.25) - 1;
+      return 1 + p * (1 - k);
+    }
+
+    /** 获取用于碰撞与路径计算的“占位宽度”，优先使用预留宽度 */
+    function getOccupiedWidth(cmt) {
+      var w = (typeof cmt && cmt ? cmt.width : 0) || 0;
+      var rw = (typeof cmt._occupiedWidth === 'number' && isFinite(cmt._occupiedWidth)) ? cmt._occupiedWidth : w;
+      return Math.max(w, rw);
+    }
+
+    /** 获取用于运动轨迹的“基础宽度”（不含徽标扩展），以保持本体轨迹不变 */
+    function getMotionWidth(cmt) {
+      if (cmt && typeof cmt._baseWidth === 'number' && isFinite(cmt._baseWidth)) return cmt._baseWidth;
+      return (cmt && typeof cmt.width === 'number' && isFinite(cmt.width)) ? cmt.width : 0;
+    }
+
+    /**
+     * 计算静态弹幕（top/bottom）的“真实过期时间”
+     * - 默认：time + duration
+     * - 若动态徽标启用且存在 mark_count/_markTimes：max(mark) + 4
+     * @param {object} cmt 弹幕对象或 { cmt } 包装对象
+     * @param {number} duration 基础持续时长（秒）
+     * @param {boolean} dynamicEnabled 是否开启动态徽标
+     * @returns {number} expireAt 过期的绝对时间（秒）
+     */
+    function computeStaticExpireAt(cmt, duration, dynamicEnabled) {
+      var src = cmt && cmt.cmt ? cmt.cmt : cmt;
+      var expireAt = (src && typeof src.time === 'number') ? src.time + duration : duration;
+      if (!dynamicEnabled) return expireAt;
+      var lastMark;
+      if (Array.isArray(src && src._markTimes) && src._markTimes.length > 0) {
+        lastMark = src._markTimes[src._markTimes.length - 1];
+      } else if (Array.isArray(src && src.mark_count) && src.mark_count.length > 0) {
+        try { lastMark = Math.max.apply(null, src.mark_count); } catch (_) { lastMark = undefined; }
+      }
+      if (typeof lastMark === 'number' && isFinite(lastMark)) return lastMark + 4;
+      return expireAt;
+    }
+
+    // 字体处理相关的工具函数：远程字体加载、字体占位重写、字体高度计算、获取元素字体大小
+
+    // Canvas高度缓存，避免重复计算字体高度
+    var canvasHeightCache = Object.create(null);
+
+    // 字体缓存：记录 /danmaku/font/ 路径加载状态与家族名
     var fontCache = Object.create(null);
 
     function __normalizeRel(path) {
-      // 去除开头的 '/'
       return (path || '').replace(/^\/+/, '');
     }
-
 
     /**
      * 确保以 /danmaku/font/ 开头的字体已加载至 document.fonts
@@ -8700,7 +8761,6 @@
           }
         } catch (_) { /* ignore */ }
 
-        // 优先从 Cache Storage 读取；否则网络获取，并将结果写入缓存
         var p = (async function () {
           try {
             var useCaches = (typeof caches !== 'undefined' && caches.open);
@@ -8721,7 +8781,6 @@
             if (!arrBuf) {
               var resp = await fetch(absUrl, { credentials: 'same-origin', mode: 'cors' });
               if (!resp || !resp.ok) throw new Error('HTTP ' + (resp && resp.status));
-              // 写入缓存（不阻塞）
               try {
                 if (useCaches) {
                   var c2 = await caches.open('jfdanmaku-fonts-v1');
@@ -8732,7 +8791,6 @@
               arrBuf = await resp.arrayBuffer();
             }
 
-            // 用 Blob URL 创建 FontFace，避免大数组 btoa 堆栈溢出
             var blob = new Blob([arrBuf], { type: typeHint });
             var objUrl = (URL && URL.createObjectURL) ? URL.createObjectURL(blob) : null;
             var ff = new FontFace(family, objUrl ? ("url(" + objUrl + ")") : ("url(" + absUrl + ")"), { style: 'normal', display: 'swap' });
@@ -8753,35 +8811,6 @@
       }
     }
 
-    // 将加载器暴露到全局，便于设置页等直接调用
-    try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
-
-    /**
-     * 是否启用“动态加号”计数标记
-     * 由全局设置 window.__jfDanmakuGlobal__.danmakuSettings 的 mark_style 控制
-     */
-    function isDynamicMarkEnabled() {
-      try {
-        var g = __getGlobal();
-        var val = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_style');
-        return val === 'dynamic';
-      } catch (_) { return false; }
-    }
-
-    /**
-     * 读取合并计数的显示阈值 mark_threshold（严格大于此值才显示），默认 1，范围 1..20
-     */
-    function getMarkThreshold() {
-      try {
-        var g = __getGlobal();
-        var v = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_threshold');
-        var n = Number(v);
-        if (!isFinite(n)) n = 1;
-        if (n < 1) n = 1; else if (n > 20) n = 20;
-        return n;
-      } catch (_) { return 1; }
-    }
-
     /**
      * 若 style.font 中包含 /danmaku/font/ 路径，则在可用时替换为已加载的家族名；失败则替换为 sans-serif。
      * 注意：该操作是就地修改 style.font。
@@ -8799,9 +8828,8 @@
           style.font = style.font.replace(url, "'" + fam + "'");
           return;
         }
-        // 未加载或加载失败：用安全的回退字体替换占位，保留原字号/行高，避免 Canvas 解析为 10px
+        // 未加载或加载失败：用安全的回退字体替换占位，并异步尝试加载
         style.font = style.font.replace(url, 'sans-serif');
-        // 仍然异步尝试加载；加载成功后，后续新建弹幕会使用已加载的家族名
         ensureRemoteFontLoaded(url);
       } catch (_) { /* ignore */ }
     }
@@ -8809,40 +8837,674 @@
     /**
      * 计算字体在Canvas中的实际高度
      * @param {string} font - CSS字体样式字符串
-     * @param {Object} fontSize - 字体大小配置对象
-     * @returns {number} 计算后的字体高度
+     * @param {Object} fontSize - 字体大小配置对象 { root: px, container: px }
+     * @returns {number} 高度
      */
     function canvasHeight(font, fontSize) {
-      // 如果已缓存则直接返回
       if (canvasHeightCache[font]) {
         return canvasHeightCache[font];
       }
       var height = 12;
-      // 匹配CSS字体样式的正则表达式
       var regex = /(\d+(?:\.\d+)?)(px|%|em|rem)(?:\s*\/\s*(\d+(?:\.\d+)?)(px|%|em|rem)?)?/;
       var p = font.match(regex);
       if (p) {
-        var fs = p[1] * 1 || 10;    // 字体大小
-        var fsu = p[2];             // 字体大小单位
-        var lh = p[3] * 1 || 1.2;   // 行高
-        var lhu = p[4];             // 行高单位
+        var fs = p[1] * 1 || 10;
+        var fsu = p[2];
+        var lh = p[3] * 1 || 1.2;
+        var lhu = p[4];
 
-        // 根据不同单位转换字体大小
         if (fsu === '%') fs *= fontSize.container / 100;
         if (fsu === 'em') fs *= fontSize.container;
         if (fsu === 'rem') fs *= fontSize.root;
 
-        // 根据不同单位计算行高
         if (lhu === 'px') height = lh;
         if (lhu === '%') height = fs * lh / 100;
         if (lhu === 'em') height = fs * lh;
         if (lhu === 'rem') height = fontSize.root * lh;
         if (lhu === undefined) height = fs * lh;
       }
-      // 缓存计算结果
       canvasHeightCache[font] = height;
       return height;
     }
+
+    /**
+     * 计算指定元素的字体大小（px）
+     * @param {HTMLElement} el
+     * @returns {number}
+     */
+    function computeFontSize(el) {
+      return window
+        .getComputedStyle(el, null)
+        .getPropertyValue('font-size')
+        .match(/(.+)px/)[1] * 1;
+    }
+
+    // danmakuCanvas 设置相关工具
+
+    function __getGlobal$1() {
+      try {
+        return (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {});
+      } catch (_) { return {}; }
+    }
+
+    /**
+     * 是否启用“动态加号”计数标记
+     * 由全局设置 window.__jfDanmakuGlobal__.danmakuSettings 的 mark_style 控制
+     */
+    function isDynamicMarkEnabled() {
+      try {
+        var g = __getGlobal$1();
+        var val = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_style');
+        return val === 'dynamic';
+      } catch (_) { return false; }
+    }
+
+    /**
+     * 读取合并计数的显示阈值 mark_threshold（严格大于此值才显示），默认 1，范围 1..20
+     */
+    function getMarkThreshold() {
+      try {
+        var g = __getGlobal$1();
+        var v = g && g.danmakuSettings && g.danmakuSettings.get && g.danmakuSettings.get('mark_threshold');
+        var n = Number(v);
+        if (!isFinite(n)) n = 1;
+        if (n < 1) n = 1; else if (n > 20) n = 20;
+        return n;
+      } catch (_) { return 1; }
+    }
+
+    // 轨道分配与碰撞相关拆分
+
+    /**
+     * 创建碰撞检测范围的初始边界
+     */
+    function collidableRange() {
+      var max = 9007199254740991; // Number.MAX_SAFE_INTEGER 的语义近似
+      return [
+        { range: 0, time: -max, width: max, height: 0 },
+        { range: max, time: max, width: 0, height: 0 }
+      ];
+    }
+
+    /**
+     * 重置弹幕空间分配器
+     */
+    function resetSpace$1(space) {
+      space.ltr = collidableRange();
+      space.rtl = collidableRange();
+      space.top = collidableRange();
+      space.bottom = collidableRange();
+    }
+
+    /**
+     * willCollide - 判断两个弹幕是否在时间/空间上冲突（供 allocate 调用）
+     * @param {object} ctx 包含 _.width/_.duration/media 等
+     * @param {object} cr  已存在的碰撞记录（含 time/height/width/cmt）
+     * @param {object} cmt 新弹幕
+     */
+    function willCollide(ctx, cr, cmt) {
+      var ct = ctx.media ? ctx.media.currentTime : (Date.now() / 1000);
+      var pbr = ctx.media ? ctx.media.playbackRate : 1;
+
+      if (cmt.mode === 'top' || cmt.mode === 'bottom') {
+        var expireAt = computeStaticExpireAt(cr, ctx._.duration, isDynamicMarkEnabled());
+        return ct < expireAt;
+      }
+
+      var crW = getOccupiedWidth(cr.cmt || cr);
+      var cmtW = getOccupiedWidth(cmt);
+      var crTotalWidth = ctx._.width + crW;
+      var crElapsed = crTotalWidth * (ct - cr.time) * pbr / ctx._.duration;
+      if (crW > crElapsed) return true;
+
+      var crLeftTime = ctx._.duration + cr.time - ct;
+      var cmtTotalWidth = ctx._.width + cmtW;
+      var cmtTime = ctx.media ? cmt.time : cmt._utc;
+      var cmtElapsed = cmtTotalWidth * (ct - cmtTime) * pbr / ctx._.duration;
+      var cmtArrival = ctx._.width - cmtElapsed;
+      var cmtArrivalTime = ctx._.duration * cmtArrival / (ctx._.width + cmtW);
+      return crLeftTime > cmtArrivalTime;
+    }
+
+    /**
+     * allocate 实现：返回 y 坐标
+     */
+    function allocateImpl(ctx, cmt) {
+      var crs = ctx._.space[cmt.mode];
+      var last = 0;
+      var curr = 0;
+
+      for (var i = 1; i < crs.length; i++) {
+        var cr = crs[i];
+        var requiredRange = cmt.height;
+        if (cmt.mode === 'top' || cmt.mode === 'bottom') requiredRange += cr.height;
+
+        if (cr.range - cr.height - crs[last].range >= requiredRange) { curr = i; break; }
+
+        if (willCollide(ctx, cr, cmt)) last = i;
+      }
+
+      var channel = crs[last].range;
+      var crObj = {
+        range: channel + cmt.height,
+        time: ctx.media ? cmt.time : cmt._utc,
+        width: getOccupiedWidth(cmt),
+        height: cmt.height,
+        cmt: cmt
+      };
+      crs.splice(last + 1, curr - last - 1, crObj);
+
+      if (cmt.mode === 'bottom') return ctx._.height - cmt.height - channel % ctx._.height;
+      return channel % (ctx._.height - cmt.height);
+    }
+
+    // 右键复制菜单模块：导出 setupCopyContextMenu（基于 this 上下文）
+
+    /**
+     * 在当前运行列表中找到与点击坐标匹配的弹幕（从上层往下）
+     * @this any 期望为 Danmaku 实例
+     */
+    function hitDanmaku(x, y) {
+      for (var i = this._.runningList.length - 1; i >= 0; i--) {
+        var c = this._.runningList[i];
+        if (x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height) return c;
+      }
+      return null;
+    }
+
+    /**
+     * 创建右键复制菜单并绑定到 document（捕获阶段）
+     * @this any 期望为 Danmaku 实例
+     */
+    function setupCopyContextMenu() {
+      var that = this;
+      if (this._.copyMenuHandlers) return; // 已初始化
+
+      var menu = document.createElement('div');
+      menu.style.position = 'fixed';
+      menu.style.zIndex = '2147483646';
+      menu.style.background = 'rgba(30,30,30,0.95)';
+      menu.style.backdropFilter = 'blur(4px)';
+      menu.style.border = '1px solid rgba(255,255,255,0.15)';
+      menu.style.borderRadius = '6px';
+      menu.style.padding = '4px 0';
+      menu.style.minWidth = '96px';
+      menu.style.font = '12px/1.4 system-ui, sans-serif';
+      menu.style.color = '#f0f0f0';
+      menu.style.boxShadow = '0 4px 18px rgba(0,0,0,0.4)';
+      menu.style.userSelect = 'none';
+      menu.style.display = 'none';
+      menu.setAttribute('data-danmaku-copy-menu', '');
+
+      var preview = document.createElement('div');
+      preview.style.padding = '6px 10px 6px 10px';
+      preview.style.fontSize = '12px';
+      preview.style.lineHeight = '1.35';
+      preview.style.color = '#e5f6ff';
+      preview.style.maxWidth = '360px';
+      preview.style.maxHeight = '120px';
+      preview.style.overflow = 'auto';
+      preview.style.wordBreak = 'break-all';
+      preview.style.whiteSpace = 'pre-wrap';
+      preview.style.borderBottom = '1px solid rgba(255,255,255,0.08)';
+      preview.style.boxSizing = 'border-box';
+      preview.setAttribute('data-danmaku-preview', '');
+      menu.appendChild(preview);
+
+      function addItem(label, onClick) {
+        var item = document.createElement('div');
+        item.textContent = label;
+        item.style.padding = '4px 12px';
+        item.style.cursor = 'pointer';
+        item.style.whiteSpace = 'nowrap';
+        item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,255,255,0.08)'; });
+        item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
+        item.addEventListener('click', function (e) {
+          e.stopPropagation();
+          try { onClick(); } catch (_) { }
+          hideMenu();
+        });
+        item.addEventListener('mousedown', function (e) { if (e.button !== 0) return; });
+        menu.appendChild(item);
+      }
+
+      var currentCmt = null;
+      function hideMenu() { menu.style.display = 'none'; currentCmt = null; }
+
+      addItem('复制', function () {
+        if (!currentCmt) return;
+        var text = currentCmt.text || '';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            var p = navigator.clipboard.writeText(text);
+            if (p && typeof p.then === 'function') {
+              p.then(function () { }).catch(function (err) {
+                try { console.warn('[Danmaku] copy async failed, fallback to execCommand', err); } catch (_) { }
+                fallbackCopy(text);
+              });
+            }
+          } else {
+            fallbackCopy(text);
+          }
+        } catch (err) {
+          try { console.warn('[Danmaku] copy threw, fallback', err); } catch (_) { }
+          try { fallbackCopy(text); } catch (_) { }
+        }
+      });
+
+      document.body.appendChild(menu);
+      this._.copyMenu = menu;
+
+      function showAt(x, y) {
+        var vw = window.innerWidth, vh = window.innerHeight;
+        menu.style.left = Math.min(x, vw - menu.offsetWidth - 4) + 'px';
+        menu.style.top = Math.min(y, vh - menu.offsetHeight - 4) + 'px';
+        menu.style.display = 'block';
+      }
+
+      function onContext(e) {
+        if (!that._.stage || !that._.stage.parentElement) return;
+        if (menu.contains(e.target)) return;
+        var rect = that._.stage.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+        var cmt = hitDanmaku.call(that, x, y);
+        if (!cmt) return;
+        if (menu.style.display === 'block') menu.style.display = 'none';
+        currentCmt = cmt;
+        preview.textContent = cmt.text || '';
+        e.preventDefault();
+        e.stopPropagation();
+        menu.style.display = 'block';
+        showAt(e.clientX, e.clientY);
+      }
+
+      function onScroll() { hideMenu(); }
+      function onDocClickWrapped(e) { if (!menu.contains(e.target)) hideMenu(); }
+
+      document.addEventListener('contextmenu', onContext, true);
+      document.addEventListener('click', onDocClickWrapped, false);
+      document.addEventListener('scroll', onScroll, true);
+      this._.copyMenuHandlers = { onContext, onDocClick: onDocClickWrapped, onScroll };
+
+      function fallbackCopy(text) {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed'; ta.style.top = '-9999px';
+          document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch (e) { try { console.warn('[Danmaku] execCommand copy error', e); } catch (_) { } }
+          document.body.removeChild(ta);
+        } catch (e) { try { console.warn('[Danmaku] fallback copy failed', e); } catch (_) { } }
+      }
+    }
+
+    // 回填弹幕（seek 时让仍在窗口内的弹幕立即出现）
+
+    function nowSec$1() {
+      try {
+        return (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) / 1000;
+      } catch (_) {
+        return Date.now() / 1000;
+      }
+    }
+
+    /**
+     * 在 seek 时执行历史弹幕回填。
+     * - 计算 [ct - window, ct] 窗口内的历史弹幕
+     * - 预创建 canvas，分配 y，推入 runningList
+     * - 如暂停则静态渲染一帧
+     *
+     * @param {Object} dm Danmaku 实例（this）
+     * @param {number} position 二分得到的插入点（第一个 > ct 的索引）
+     */
+    function performSeekBackfill(dm, position) {
+      try {
+        if (!dm || !dm.media) return;
+        var ct = dm.media.currentTime;
+        var windowStart = Math.max(0, ct - (dm._.backfillDuration || dm._.duration));
+        // 找到窗口起点索引（第一个 > windowStart 的插入点 -> 前一个即 <= windowStart）
+        var wsIndex = binsearch(dm.comments, 'time', windowStart) - 1;
+        if (wsIndex < -1) wsIndex = -1;
+        var start = wsIndex + 1;
+        var end = position; // 不含 position (position 为第一个 > ct 的插入点)
+        var pool = [];
+        for (var i = start; i < end; i++) {
+          var c = dm.comments[i];
+          // 过滤：仅回填真正落在窗口内的；并限制数量
+          if (c.time <= ct && c.time >= windowStart) {
+            pool.push(c);
+            if (dm._.maxBackfill && pool.length >= dm._.maxBackfill) break;
+          }
+        }
+        if (!pool.length) return;
+
+        // 创建 canvas（避免首帧重复 setup）
+        dm._.engine.setup(dm._.stage, pool);
+        var dn = nowSec$1();
+        for (var j = 0; j < pool.length; j++) {
+          var cmt = pool[j];
+          // 复现其 _utc：等价于正常进入时的计算，使滚动位置正确
+          cmt._utc = dn - (ct - cmt.time);
+          // 分配 Y（按时间顺序保证占道逻辑正确）
+          try { cmt.y = allocateImpl.call(dm, dm, cmt); } catch (_) { try { cmt.y = allocateImpl(dm, cmt); } catch (__) { cmt.y = 0; } }
+          dm._.runningList.push(cmt);
+        }
+        // 为避免 engine 再次把这些回填的弹幕判定为“待进入”，直接将游标推进到 position
+        dm._.position = position;
+
+        // 如果当前是暂停状态（或可见但未播放），需要立即渲染一个静态帧，否则用户看不到回填结果
+        if (dm._.paused || (dm.media && dm.media.paused)) {
+          try {
+            dm._.engine.framing(dm._.stage);
+            var pbr = dm.media ? dm.media.playbackRate : 1;
+            for (var k = 0; k < dm._.runningList.length; k++) {
+              var rc = dm._.runningList[k];
+              var baseW = (typeof rc._baseWidth === 'number' && isFinite(rc._baseWidth)) ? rc._baseWidth : rc.width;
+              var totalWidth = dm._.width + baseW;
+              // 使用 media.currentTime 保持与真正播放时的一致位置（基础宽度）
+              var elapsed = totalWidth * (ct - rc.time) * pbr / dm._.duration;
+              if (rc.mode === 'ltr') rc.x = elapsed - baseW;
+              if (rc.mode === 'rtl') rc.x = dm._.width - elapsed;
+              if (rc.mode === 'top' || rc.mode === 'bottom') {
+                if (rc._markDisplay && typeof rc._textWidth === 'number' && typeof rc._textLeft === 'number') {
+                  var _tc = rc._textLeft + rc._textWidth / 2;
+                  rc.x = (dm._.width / 2) - _tc;
+                } else {
+                  rc.x = (dm._.width - rc.width) >> 1;
+                }
+              }
+              dm._.engine.render(dm._.stage, rc);
+            }
+          } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) { } }
+        }
+      } catch (e) {
+        try { console.warn('[Danmaku] seek backfill error', e); } catch (_) { }
+      }
+    }
+
+    // 动态计数标记（“+n”徽标）逻辑
+
+    // 单独维护 dpr，避免与主模块耦合
+    var dpr$1 = typeof window !== 'undefined' && window.devicePixelRatio || 1;
+
+    /**
+     * 根据 mark_count（时间点列表，秒）动态为弹幕文本追加 " +n" 后缀，并在需要时重建画布
+     * 仅当 n 发生变化时才更新，以降低开销
+     * @param {HTMLCanvasElement} stage 舞台（用于获取字体尺寸）
+     * @param {Object} cmt 弹幕对象（期望包含 mark_count 数组）
+     * @param {number} ct 当前时间（秒）
+     * @param {Function} createCommentCanvas 用于重建基础或带徽标的画布（由主模块注入，避免循环依赖）
+     */
+    function updateMarkSuffix$1(stage, cmt, ct, createCommentCanvas) {
+      try {
+        var enabled = isDynamicMarkEnabled();
+        if (!enabled) {
+          if (cmt && (cmt._markShown && cmt._markShown > 0 || typeof cmt.render === 'function')) {
+            cmt._markShown = 0;
+            cmt.render = null;
+            try {
+              cmt.width = undefined; cmt.height = undefined;
+              var fs0 = stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 };
+              cmt.canvas = createCommentCanvas(cmt, fs0);
+            } catch (_) { }
+          }
+          if (cmt) { cmt._scaleStart = undefined; cmt._scaleCurrent = 1; }
+          return;
+        }
+
+        var list = cmt && cmt.mark_count;
+        if (!Array.isArray(list) || list.length <= 1) {
+          if (cmt._markShown && cmt._markShown > 0) {
+            cmt._markShown = 0;
+            cmt.render = null;
+            try {
+              cmt.width = undefined; cmt.height = undefined;
+              cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
+            } catch (_) { }
+          }
+          if (cmt) cmt._occupiedWidth = undefined;
+          return;
+        }
+
+        if (!cmt._markTimes) {
+          try { cmt._markTimes = list.slice().sort(function (a, b) { return a - b; }); } catch (_) { cmt._markTimes = []; }
+          if (!cmt._markBaseText) cmt._markBaseText = (cmt.text == null ? '' : String(cmt.text));
+          cmt._markShown = 0;
+          cmt._markDisplay = false;
+        }
+
+        var times = cmt._markTimes;
+        if (!times || times.length === 0) return;
+
+        // 由于 lowerBoundNumber 在 utils 中，这里采用本地实现以避免额外依赖
+        function lowerBoundNumber(arr, key) {
+          var l = 0, r = arr.length;
+          while (l < r) {
+            var m = (l + r) >> 1;
+            if (arr[m] <= key) l = m + 1; else r = m;
+          }
+          return l;
+        }
+
+        var reached = lowerBoundNumber(times, ct);
+        var show = reached;
+        var threshold = getMarkThreshold();
+        var displayNow = (show > threshold);
+        var prevDisplay = !!cmt._markDisplay;
+        if (show === cmt._markShown && displayNow === prevDisplay) return;
+
+        if (typeof cmt._markShown === 'number' && show > cmt._markShown && show > 5) {
+          cmt._scaleStart = ct;
+          cmt._scaleDuration = 0.35;
+          cmt._scalePeak = 1.25;
+        }
+        cmt._markShown = show;
+        cmt._markDisplay = displayNow;
+
+        if (displayNow) {
+          var baseText = cmt._markBaseText;
+          var style = cmt.style || {};
+          var fontStr = style.font || '25px sans-serif';
+          var strokeWidth = style.lineWidth * 1;
+          strokeWidth = (strokeWidth > 0 && strokeWidth !== Infinity)
+            ? Math.ceil(strokeWidth)
+            : !!style.strokeStyle * 1;
+          var fsConf = (stage && stage._fontSize) ? stage._fontSize : { root: 16, container: 16 };
+
+          var badgeColor = '#3498db';
+          if (show > 30) badgeColor = '#e74c3c';
+          else if (show > 10) badgeColor = '#e67e22';
+
+          cmt.render = function () {
+            var cvs = document.createElement('canvas');
+            var ctx = cvs.getContext('2d');
+            var s = Object.assign({}, style);
+            s.font = fontStr;
+            s.textBaseline = s.textBaseline || 'bottom';
+            maybeRewriteStyleFont(s);
+            ctx.font = s.font;
+            var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
+            var th = Math.ceil(canvasHeight(s.font, fsConf));
+
+            var d = Math.max(6, Math.round(th * 0.6));
+            var r = d / 2;
+            var gap = Math.max(2, Math.round(th * 0.2));
+
+            var width = tw + strokeWidth * 2 + gap + d;
+            var height = th + strokeWidth * 2;
+            cvs.width = width * dpr$1;
+            cvs.height = height * dpr$1;
+            ctx.scale(dpr$1, dpr$1);
+
+            for (var key in s) ctx[key] = s[key];
+
+            var baseline = 0;
+            switch (s.textBaseline) {
+              case 'top':
+              case 'hanging': baseline = strokeWidth; break;
+              case 'middle': baseline = height >> 1; break;
+              default: baseline = height - strokeWidth;
+            }
+
+            if (s.strokeStyle) ctx.strokeText(baseText, strokeWidth, baseline);
+            ctx.fillText(baseText, strokeWidth, baseline);
+
+            var cx = strokeWidth + tw + gap + r;
+            var cy = baseline - r;
+            ctx.beginPath();
+            ctx.fillStyle = badgeColor;
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            var innerFontPx = Math.max(8, Math.floor(d * 0.6));
+            var fam = 'sans-serif';
+            try { var m = s.font.match(/\b\d+(?:\.\d+)?px\s+(.+)$/); if (m) fam = m[1]; } catch (_) { }
+            ctx.font = innerFontPx + 'px ' + fam;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(show, cx, cy);
+
+            ctx.textAlign = undefined;
+            ctx.textBaseline = undefined;
+            return cvs;
+          };
+
+          try {
+            cmt.width = undefined; cmt.height = undefined;
+            cmt.canvas = createCommentCanvas(cmt, fsConf);
+          } catch (_) { }
+          try {
+            var textCanvas = document.createElement('canvas');
+            var tctx = textCanvas.getContext('2d');
+            var s2 = Object.assign({}, style); s2.font = fontStr; s2.textBaseline = s2.textBaseline || 'bottom'; maybeRewriteStyleFont(s2);
+            tctx.font = s2.font;
+            var tw2 = Math.max(1, Math.ceil(tctx.measureText(baseText).width));
+            var th2 = Math.ceil(canvasHeight(s2.font, fsConf));
+            var d2 = Math.max(6, Math.round(th2 * 0.6));
+            var gap2 = Math.max(2, Math.round(th2 * 0.2));
+            var stroke2 = strokeWidth * 2;
+            cmt._textWidth = tw2;
+            cmt._textLeft = strokeWidth;
+            cmt._baseWidth = tw2 + stroke2;
+            cmt._occupiedWidth = tw2 + stroke2 + gap2 + d2;
+          } catch (_) { cmt._occupiedWidth = cmt.width; }
+        } else {
+          cmt.render = null;
+          try {
+            cmt.width = undefined; cmt.height = undefined;
+            cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
+          } catch (_) { }
+          cmt._occupiedWidth = undefined;
+          cmt._textWidth = undefined;
+          cmt._textLeft = undefined;
+          cmt._baseWidth = undefined;
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // 发送新弹幕逻辑拆分
+
+    // 内部有效属性白名单
+    var properties = ['mode', 'time', 'text', 'render', 'style'];
+
+    function nowMs() { return (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()); }
+
+    /**
+     * 发送新弹幕
+     * @param {Object} obj
+     * @returns {any}
+     */
+    function emit$1(obj) {
+      if (!obj || Object.prototype.toString.call(obj) !== '[object Object]') {
+        return this;
+      }
+
+      var cmt = {};
+      for (var i = 0; i < properties.length; i++) {
+        if (obj[properties[i]] !== undefined) {
+          cmt[properties[i]] = obj[properties[i]];
+        }
+      }
+
+      cmt.text = (cmt.text || '').toString();
+      cmt.mode = formatMode(cmt.mode);
+      cmt._utc = nowMs() / 1000;
+
+      if (this.media) {
+        var position = 0;
+        if (cmt.time === undefined) {
+          cmt.time = this.media.currentTime;
+          position = this._.position;
+        } else {
+          position = binsearch(this.comments, 'time', cmt.time);
+          if (position < this._.position) {
+            this._.position += 1;
+          }
+        }
+        this.comments.splice(position, 0, cmt);
+      } else {
+        this.comments.push(cmt);
+      }
+      return this;
+    }
+
+    // 倍速变化平滑过渡逻辑
+
+    function nowSec() {
+      try {
+        return (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) / 1000;
+      } catch (_) {
+        return Date.now() / 1000;
+      }
+    }
+
+    /**
+     * 媒体倍速变化时平滑过渡，避免弹幕位置瞬移
+     * @returns {any}
+     */
+    function ratechange$1() {
+      if (!this || !this.media) return this;
+      var newRate = this.media.playbackRate || 1;
+      if (this._.paused) { // 暂停状态不需要修正，恢复播放时已按当前速率计算
+        this._.lastPbr = newRate;
+        return this;
+      }
+      var oldRate = this._.lastPbr || 1;
+      if (newRate <= 0 || Math.abs(newRate - oldRate) < 1e-6) {
+        this._.lastPbr = newRate;
+        return this;
+      }
+      var dn = nowSec();
+      for (var i = 0; i < this._.runningList.length; i++) {
+        var c = this._.runningList[i];
+        c._utc = dn - (dn - c._utc) * oldRate / newRate;
+      }
+      this._.lastPbr = newRate;
+      return this;
+    }
+
+    /**
+     * 获取设备像素比，用于高分辨率屏幕适配
+     */
+    var dpr = typeof window !== 'undefined' && window.devicePixelRatio || 1;
+
+    function __getGlobal() {
+      try {
+        // eslint-disable-next-line no-return-assign
+        return (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {});
+      } catch (_) {
+        return {};
+      }
+    }
+    // 将加载器暴露到全局，便于设置页等直接调用
+    try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
+
+    // isDynamicMarkEnabled / getMarkThreshold 已迁移至 danmakuCanvas.settings
+
+    // 字体相关的 maybeRewriteStyleFont/canvasHeight 均从 danmakuCanvas.font 引入
 
     /**
      * 创建弹幕文本的Canvas画布
@@ -8916,18 +9578,6 @@
       }
       ctx.fillText(cmt.text, strokeWidth, baseline);
       return canvas;
-    }
-
-    /**
-     * 计算指定元素的字体大小（以px为单位）
-     * @param {HTMLElement} el - 目标元素
-     * @returns {number} 字体大小的像素值
-     */
-    function computeFontSize(el) {
-      return window
-        .getComputedStyle(el, null)
-        .getPropertyValue('font-size')
-        .match(/(.+)px/)[1] * 1;
     }
 
     /**
@@ -9025,17 +9675,7 @@
     }
 
     // 获取用于碰撞与路径计算的“占位宽度”，优先使用预留宽度
-    function getOccupiedWidth(cmt) {
-      var w = (typeof cmt && cmt ? cmt.width : 0) || 0;
-      var rw = (typeof cmt._occupiedWidth === 'number' && isFinite(cmt._occupiedWidth)) ? cmt._occupiedWidth : w;
-      return Math.max(w, rw);
-    }
-
-    // 获取用于运动轨迹的“基础宽度”（不含徽标扩展），以保持本体轨迹不变
-    function getMotionWidth(cmt) {
-      if (cmt && typeof cmt._baseWidth === 'number' && isFinite(cmt._baseWidth)) return cmt._baseWidth;
-      return (cmt && typeof cmt.width === 'number' && isFinite(cmt.width)) ? cmt.width : 0;
-    }
+    // 使用 utils 中的实现：getOccupiedWidth / getMotionWidth
 
     /**
      * 移除弹幕并释放资源
@@ -9097,72 +9737,6 @@
       return clearTimeout;
     })();
 
-    /**
-     * 二分查找算法
-     * 在已排序数组中查找指定属性值的位置
-     * @param {Array} arr - 已排序的数组
-     * @param {string} prop - 要比较的属性名
-     * @param {*} key - 要查找的值
-     * @returns {number} 插入位置的索引
-     */
-    function binsearch(arr, prop, key) {
-      try { console.log(LOG_PREFIX, 'binsearch: start', { length: arr && arr.length, prop: prop, key: key }); } catch (e) { }
-      // 返回插入位置 (0..arr.length)
-      var left = 0;
-      var right = arr.length; // 区间: [left, right)
-      while (left < right) {
-        var mid = (left + right) >> 1;
-        var v = arr[mid][prop];
-        if (v <= key) {
-          left = mid + 1; // 插入点在右侧
-        } else {
-          right = mid;
-        }
-      }
-      // left 即为插入点
-      try { console.log(LOG_PREFIX, 'binsearch: end', { insertion: left }); } catch (e) { }
-      return left;
-    }
-
-    /**
-     * 计算已到达的 mark_count 次数（数组需为升序），返回 <= key 的个数
-     * @param {number[]} arr 升序时间数组（单位：秒）
-     * @param {number} key 当前时间（秒）
-     * @returns {number} 计数
-     */
-    function lowerBoundNumber(arr, key) {
-      var l = 0, r = arr.length;
-      while (l < r) {
-        var m = (l + r) >> 1;
-        if (arr[m] <= key) l = m + 1; else r = m;
-      }
-      return l; // 有效个数
-    }
-
-    /**
-     * backOut 缓动（带回弹），t∈[0,1]
-     */
-    function easeBackOut(t) {
-      var s = 1.70158;
-      t = t - 1;
-      return (t * t * ((s + 1) * t + s) + 1);
-    }
-
-    /**
-     * 计算缩放值：触发时瞬间放大到 peak，随后在 duration 秒内“缩小并带回弹”回到 1。
-     */
-    function computeScale(start, nowSec, duration, peak) {
-      if (typeof start !== 'number') return 1;
-      var dt = nowSec - start;
-      if (dt <= 0) return peak || 1.25; // 触发帧：瞬间放大
-      var dur = (duration || 0.35);
-      if (dt >= dur) return 1; // 结束：回到 1
-      var t = dt / dur; // 0->1
-      var k = easeBackOut(t); // 0->1，并在接近 1 时有回弹特性
-      var p = (peak || 1.25) - 1;
-      // 从 peak 向 1 收敛，允许在中后段略微低于 1 形成回弹视觉：s = 1 + p * (1 - k)
-      return 1 + p * (1 - k);
-    }
 
     /**
      * 根据 mark_count（时间点列表，秒）动态为弹幕文本追加 " +n" 后缀，并在需要时重建画布
@@ -9171,238 +9745,28 @@
      * @param {Object} cmt 弹幕对象（期望包含 mark_count 数组）
      * @param {number} ct 当前时间（秒）
      */
-    function updateMarkSuffix(stage, cmt, ct) {
-      try {
-        // 开关：仅在 mark_style === 'dynamic' 时启用此功能
-        var enabled = isDynamicMarkEnabled();
-        if (!enabled) {
-          // 若之前启用过，需恢复基础文本并清理缩放状态
-          if (cmt && (cmt._markShown && cmt._markShown > 0 || typeof cmt.render === 'function')) {
-            cmt._markShown = 0;
-            cmt.render = null;
-            try {
-              cmt.width = undefined; cmt.height = undefined;
-              var fs0 = stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 };
-              cmt.canvas = createCommentCanvas(cmt, fs0);
-            } catch (_) { }
-          }
-          // 清理缩放状态，避免残留动画
-          if (cmt) { cmt._scaleStart = undefined; cmt._scaleCurrent = 1; }
-          return;
-        }
-
-        var list = cmt && cmt.mark_count;
-        if (!Array.isArray(list) || list.length <= 1) {
-          // 无可用计数或仅自身：还原为基础文本渲染
-          if (cmt._markShown && cmt._markShown > 0) {
-            cmt._markShown = 0;
-            cmt.render = null; // 还原
-            try {
-              cmt.width = undefined; cmt.height = undefined;
-              cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
-            } catch (_) { }
-          }
-      // 还原占位宽度
-      if (cmt) cmt._occupiedWidth = undefined;
-          return;
-        }
-
-        if (!cmt._markTimes) {
-          // 首次初始化：拷贝并排序，保存基文本
-          try { cmt._markTimes = list.slice().sort(function (a, b) { return a - b; }); } catch (_) { cmt._markTimes = []; }
-          if (!cmt._markBaseText) cmt._markBaseText = (cmt.text == null ? '' : String(cmt.text));
-          cmt._markShown = 0; // 当前已统计显示的计数
-          cmt._markDisplay = false; // 当前是否处于显示状态（受阈值控制）
-        }
-
-        var times = cmt._markTimes;
-        if (!times || times.length === 0) return;
-        // 计算到达总数 reached（本体视为 +1），仅当 reached大于阈值 才显示
-        var reached = lowerBoundNumber(times, ct);
-        var show = reached; // 直接显示 reached（本体+1）
-        var threshold = getMarkThreshold();
-        var displayNow = (show > threshold);
-        var prevDisplay = !!cmt._markDisplay;
-        // 若计数未变且显示状态未变化则跳过
-        if (show === cmt._markShown && displayNow === prevDisplay) return;
-
-        // 计数每次递增且超过 5 时触发缩放动效
-        if (typeof cmt._markShown === 'number' && show > cmt._markShown && show > 5) {
-          cmt._scaleStart = ct;
-          cmt._scaleDuration = 0.35; // 秒
-          cmt._scalePeak = 1.25;     // 最大缩放
-        }
-        cmt._markShown = show;
-        cmt._markDisplay = displayNow;
-
-      // 准备渲染器：当超过阈值时绘制徽标，否则还原基础文本
-      if (displayNow) {
-          var baseText = cmt._markBaseText;
-          // 提前捕获 style 和字体尺寸
-          var style = cmt.style || {};
-          var fontStr = style.font || '25px sans-serif';
-          var strokeWidth = style.lineWidth * 1;
-          strokeWidth = (strokeWidth > 0 && strokeWidth !== Infinity)
-            ? Math.ceil(strokeWidth)
-            : !!style.strokeStyle * 1;
-          var fsConf = (stage && stage._fontSize) ? stage._fontSize : { root: 16, container: 16 };
-
-          // 颜色阈值：<10 蓝，>10 橙，>30 红（无绿色）
-          var badgeColor = '#3498db';
-          if (show > 30) badgeColor = '#e74c3c';
-          else if (show > 10) badgeColor = '#e67e22';
-
-          // 渲染函数（由 createCommentCanvas 调用）
-          cmt.render = function () {
-      // 计算文本尺寸
-            var cvs = document.createElement('canvas');
-            var ctx = cvs.getContext('2d');
-            // 如包含远程字体占位，尽量重写为已加载的家族名
-            var s = Object.assign({}, style);
-            s.font = fontStr;
-            s.textBaseline = s.textBaseline || 'bottom';
-            maybeRewriteStyleFont(s);
-            ctx.font = s.font;
-      var tw = Math.max(1, Math.ceil(ctx.measureText(baseText).width));
-      var th = Math.ceil(canvasHeight(s.font, fsConf));
-
-            // 徽标尺寸（直径）与间距
-            var d = Math.max(6, Math.round(th * 0.6));
-            var r = d / 2;
-            var gap = Math.max(2, Math.round(th * 0.2));
-
-      // 画布尺寸
-            var width = tw + strokeWidth * 2 + gap + d;
-            var height = th + strokeWidth * 2;
-            cvs.width = width * dpr;
-            cvs.height = height * dpr;
-            ctx.scale(dpr, dpr);
-
-            // 应用文本样式
-            for (var key in s) ctx[key] = s[key];
-
-            // 基线
-            var baseline = 0;
-            switch (s.textBaseline) {
-              case 'top':
-              case 'hanging': baseline = strokeWidth; break;
-              case 'middle': baseline = height >> 1; break;
-              default: baseline = height - strokeWidth;
-            }
-
-      // 绘制基础文本
-            if (s.strokeStyle) ctx.strokeText(baseText, strokeWidth, baseline);
-            ctx.fillText(baseText, strokeWidth, baseline);
-
-            // 绘制徽标（与文本底边对齐）
-            var cx = strokeWidth + tw + gap + r;
-            var cy = baseline - r; // 底边对齐：圆底部在 baseline 上
-            ctx.beginPath();
-            ctx.fillStyle = badgeColor;
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.fill();
-
-            // 徽标内文字
-            // var inner = '+' + show;
-            ctx.fillStyle = '#fff';
-            var innerFontPx = Math.max(8, Math.floor(d * 0.6));
-            // 取出字体家族
-            var fam = 'sans-serif';
-            try { var m = s.font.match(/\b\d+(?:\.\d+)?px\s+(.+)$/); if (m) fam = m[1]; } catch (_) { }
-            ctx.font = innerFontPx + 'px ' + fam;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(show, cx, cy);
-
-            // 恢复文本样式（避免后续误用）
-            ctx.textAlign = undefined;
-            ctx.textBaseline = undefined;
-            return cvs;
-          };
-
-          // 触发重建画布
-          try {
-            cmt.width = undefined; cmt.height = undefined;
-            cmt.canvas = createCommentCanvas(cmt, fsConf);
-          } catch (_) { }
-          // 预估占位宽度（文本宽度 + gap + 徽标直径）。这里使用最新绘制的 canvas 宽度作为基准
-          try {
-            var textCanvas = document.createElement('canvas');
-            var tctx = textCanvas.getContext('2d');
-            var s2 = Object.assign({}, style); s2.font = fontStr; s2.textBaseline = s2.textBaseline || 'bottom'; maybeRewriteStyleFont(s2);
-            tctx.font = s2.font;
-            var tw2 = Math.max(1, Math.ceil(tctx.measureText(baseText).width));
-            var th2 = Math.ceil(canvasHeight(s2.font, fsConf));
-            var d2 = Math.max(6, Math.round(th2 * 0.6));
-            var gap2 = Math.max(2, Math.round(th2 * 0.2));
-            var stroke2 = strokeWidth * 2;
-      // 记录基础文本在画布中的绘制信息，便于顶部/底部模式“以文本中心居中”计算
-      cmt._textWidth = tw2; // 基础文本宽度（不含描边两侧 padding）
-      cmt._textLeft = strokeWidth; // 文本起绘 X（等于描边宽度）
-            // 基础运动宽度（不含徽标扩展），用于滚动轨迹计算
-            cmt._baseWidth = tw2 + stroke2;
-            cmt._occupiedWidth = tw2 + stroke2 + gap2 + d2;
-          } catch (_) { cmt._occupiedWidth = cmt.width; }
-        } else {
-          // 不展示徽标（reached<=1）：还原基础文本
-          cmt.render = null;
-          try {
-            cmt.width = undefined; cmt.height = undefined;
-            cmt.canvas = createCommentCanvas(cmt, stage && stage._fontSize ? stage._fontSize : { root: 16, container: 16 });
-          } catch (_) { }
-      cmt._occupiedWidth = undefined;
-      cmt._textWidth = undefined;
-      cmt._textLeft = undefined;
-      cmt._baseWidth = undefined;
-        }
-      } catch (e) { /* ignore */ }
-    }
+    function updateMarkSuffix(stage, cmt, ct) { return updateMarkSuffix$1(stage, cmt, ct, createCommentCanvas); }
     /**
      * 格式化弹幕模式
      * @param {string} mode - 弹幕模式
      * @returns {string} 标准化的弹幕模式
      */
-    function formatMode(mode) {
-      // 只允许左到右、顶部、底部三种模式，其他默认为右到左
-      if (!/^(ltr|top|bottom)$/i.test(mode)) {
-        return 'rtl';
-      }
-      return mode.toLowerCase();
-    }
+    // 使用 utils 中的实现：formatMode
 
     /**
      * 创建碰撞检测范围的初始边界
      * @returns {Array} 包含初始和结束边界的数组
      */
-    function collidableRange() {
-      var max = 9007199254740991; // JavaScript最大安全整数
-      return [
-        { range: 0, time: -max, width: max, height: 0 },      // 起始边界
-        { range: max, time: max, width: 0, height: 0 }        // 结束边界
-      ];
-    }
+    // collidableRange 已迁移至 danmakuCanvas.allocate
 
     /**
      * 重置弹幕空间分配器
      * @param {Object} space - 空间分配对象
      */
-    function resetSpace(space) {
-      space.ltr = collidableRange();     // 左到右弹幕空间
-      space.rtl = collidableRange();     // 右到左弹幕空间
-      space.top = collidableRange();     // 顶部弹幕空间
-      space.bottom = collidableRange();  // 底部弹幕空间
-    }
+    function resetSpace(space) { return resetSpace$1(space); }
 
-    /**
-     * 获取当前时间戳
-     * 优先使用高精度计时器，降级为Date.now()
-     * @returns {number} 当前时间戳（毫秒）
-     */
-    function now() {
-      return typeof window.performance !== 'undefined' && window.performance.now
-        ? window.performance.now()
-        : Date.now();
-    }
+    // 统一使用 utils 的 now（以秒为单位），此处需要毫秒时间戳供 rAF 锚点使用
+    function now() { return (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()); }
 
     /**
      * 为弹幕分配显示位置（避免碰撞）
@@ -9410,85 +9774,7 @@
      * @returns {number} 分配的Y坐标位置
      */
     /* eslint no-invalid-this: 0 */
-    function allocate(cmt) {
-      var that = this;
-      var ct = this.media ? this.media.currentTime : now() / 1000;  // 当前时间
-      var pbr = this.media ? this.media.playbackRate : 1;           // 播放速率
-
-      /**
-       * 判断两个弹幕是否会发生碰撞
-       * @param {Object} cr - 已存在的弹幕
-       * @param {Object} cmt - 新弹幕
-       * @returns {boolean} 是否会碰撞
-       */
-      function willCollide(cr, cmt) {
-        // 顶部和底部弹幕只需要检查时间重叠
-        if (cmt.mode === 'top' || cmt.mode === 'bottom') {
-          return ct - cr.time < that._.duration;
-        }
-
-        // 滚动弹幕需要计算运动轨迹
-      var crW = getOccupiedWidth(cr.cmt || cr);
-      var cmtW = getOccupiedWidth(cmt);
-      var crTotalWidth = that._.width + crW;
-        var crElapsed = crTotalWidth * (ct - cr.time) * pbr / that._.duration;
-      if (crW > crElapsed) {
-          return true;
-        }
-
-        // RTL模式：计算右端移出左侧的时间
-        var crLeftTime = that._.duration + cr.time - ct;
-      var cmtTotalWidth = that._.width + cmtW;
-        var cmtTime = that.media ? cmt.time : cmt._utc;
-        var cmtElapsed = cmtTotalWidth * (ct - cmtTime) * pbr / that._.duration;
-        var cmtArrival = that._.width - cmtElapsed;
-
-        // RTL模式：计算左端到达左侧的时间
-      var cmtArrivalTime = that._.duration * cmtArrival / (that._.width + cmtW);
-        return crLeftTime > cmtArrivalTime;
-      }
-
-      var crs = this._.space[cmt.mode];  // 获取对应模式的空间数组
-      var last = 0;
-      var curr = 0;
-
-      // 寻找合适的插入位置
-      for (var i = 1; i < crs.length; i++) {
-        var cr = crs[i];
-        var requiredRange = cmt.height;
-        if (cmt.mode === 'top' || cmt.mode === 'bottom') {
-          requiredRange += cr.height;
-        }
-
-        // 检查是否有足够空间
-        if (cr.range - cr.height - crs[last].range >= requiredRange) {
-          curr = i;
-          break;
-        }
-
-        // 检查碰撞
-        if (willCollide(cr, cmt)) {
-          last = i;
-        }
-      }
-
-      var channel = crs[last].range;
-      // 创建新的碰撞记录
-      var crObj = {
-        range: channel + cmt.height,
-        time: this.media ? cmt.time : cmt._utc,
-      width: getOccupiedWidth(cmt),
-      height: cmt.height,
-      cmt: cmt
-      };
-      crs.splice(last + 1, curr - last - 1, crObj);
-
-      // 底部弹幕需要从下往上计算位置
-      if (cmt.mode === 'bottom') {
-        return this._.height - cmt.height - channel % this._.height;
-      }
-      return channel % (this._.height - cmt.height);
-    }
+    function allocate(cmt) { return allocateImpl(this, cmt); }
 
     /**
      * 创建渲染引擎函数
@@ -9605,14 +9891,14 @@
           } else {
             cmt._scaleCurrent = 1;
           }
-      var ocw = getOccupiedWidth(cmt);
-      var mw = getMotionWidth(cmt);
-      var totalWidth = this._.width + mw; // 使用基础宽度计算轨迹
+          var ocw = getOccupiedWidth(cmt);
+          var mw = getMotionWidth(cmt);
+          var totalWidth = this._.width + mw; // 使用基础宽度计算轨迹
           var elapsed = totalWidth * (dn - cmt._utc) * pbr / this._.duration;
 
           // 根据弹幕模式计算X坐标
-      if (cmt.mode === 'ltr') cmt.x = elapsed - mw;               // 左到右（基础宽度）
-      if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左（基础宽度）
+          if (cmt.mode === 'ltr') cmt.x = elapsed - mw;               // 左到右（基础宽度）
+          if (cmt.mode === 'rtl') cmt.x = this._.width - elapsed;     // 右到左（基础宽度）
           if (cmt.mode === 'top' || cmt.mode === 'bottom') {          // 顶部/底部：保持“文本”居中不动，徽标向右扩展
             if (cmt._markDisplay && typeof cmt._textWidth === 'number' && typeof cmt._textLeft === 'number') {
               // 画布中“文本中心”相对画布左的偏移
@@ -9688,26 +9974,7 @@
      * @returns {Object}
      */
     /* eslint no-invalid-this: 0 */
-    function ratechange() {
-      if (!this.media) return this;
-      var newRate = this.media.playbackRate || 1;
-      if (this._.paused) { // 暂停状态不需要修正，恢复播放时已按当前速率计算
-        this._.lastPbr = newRate;
-        return this;
-      }
-      var oldRate = this._.lastPbr || 1;
-      if (newRate <= 0 || Math.abs(newRate - oldRate) < 1e-6) {
-        this._.lastPbr = newRate;
-        return this;
-      }
-      var dn = now() / 1000;
-      for (var i = 0; i < this._.runningList.length; i++) {
-        var c = this._.runningList[i];
-        c._utc = dn - (dn - c._utc) * oldRate / newRate;
-      }
-      this._.lastPbr = newRate;
-      return this;
-    }
+    function ratechange() { return ratechange$1.call(this); }
 
     /**
      * 跳转到指定时间位置
@@ -9727,68 +9994,7 @@
 
       // 在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现
       if (this._.backfillOnSeek) {
-        try {
-          var ct = this.media.currentTime;
-          var windowStart = Math.max(0, ct - (this._.backfillDuration || this._.duration));
-          // 找到窗口起点索引（第一个 > windowStart 的插入点 -> 前一个即 <= windowStart）
-          var wsIndex = binsearch(this.comments, 'time', windowStart) - 1;
-          if (wsIndex < -1) wsIndex = -1;
-          var start = wsIndex + 1;
-          var end = position; // 不含 position (position 为第一个 > ct 的插入点)
-          var pool = [];
-          for (var i = start; i < end; i++) {
-            var c = this.comments[i];
-            // 过滤：仅回填真正落在窗口内的；并限制数量
-            if (c.time <= ct && c.time >= windowStart) {
-              pool.push(c);
-              if (this._.maxBackfill && pool.length >= this._.maxBackfill) break;
-            }
-          }
-          if (pool.length) {
-            // 创建 canvas（避免首帧重复 setup）
-            this._.engine.setup(this._.stage, pool);
-            var dn = now() / 1000;
-            for (var j = 0; j < pool.length; j++) {
-              var cmt = pool[j];
-              // 复现其 _utc：等价于正常进入时的计算，使滚动位置正确
-              cmt._utc = dn - (ct - cmt.time);
-              // 分配 Y（按时间顺序保证占道逻辑正确）
-              cmt.y = allocate.call(this, cmt);
-              this._.runningList.push(cmt);
-            }
-            // 为避免 engine 再次把这些回填的弹幕判定为“待进入”，直接将游标推进到 position
-            this._.position = position;
-
-            // 如果当前是暂停状态（或可见但未播放），需要立即渲染一个静态帧，否则用户看不到回填结果
-            if (this._.paused || (this.media && this.media.paused)) {
-              try {
-                // 清帧
-                this._.engine.framing(this._.stage);
-                var pbr = this.media ? this.media.playbackRate : 1;
-                for (var k = 0; k < this._.runningList.length; k++) {
-                  var rc = this._.runningList[k];
-                  var baseW = (typeof rc._baseWidth === 'number' && isFinite(rc._baseWidth)) ? rc._baseWidth : rc.width;
-                  var totalWidth = this._.width + baseW;
-                  // 使用 media.currentTime 保持与真正播放时的一致位置（基础宽度）
-                  var elapsed = totalWidth * (ct - rc.time) * pbr / this._.duration;
-                  if (rc.mode === 'ltr') rc.x = elapsed - baseW;
-                  if (rc.mode === 'rtl') rc.x = this._.width - elapsed;
-                  if (rc.mode === 'top' || rc.mode === 'bottom') {
-                    if (rc._markDisplay && typeof rc._textWidth === 'number' && typeof rc._textLeft === 'number') {
-                      var _tc = rc._textLeft + rc._textWidth / 2;
-                      rc.x = (this._.width / 2) - _tc;
-                    } else {
-                      rc.x = (this._.width - rc.width) >> 1;
-                    }
-                  }
-                  this._.engine.render(this._.stage, rc);
-                }
-              } catch (re) { try { console.warn('[Danmaku] seek backfill static render error', re); } catch (_) { } }
-            }
-          }
-        } catch (e) {
-          try { console.warn('[Danmaku] seek backfill error', e); } catch (_) { }
-        }
+      performSeekBackfill(this, position);
       }
       return this;
     }
@@ -9989,58 +10195,7 @@
       return this;
     }
 
-    /**
-     * 弹幕对象的有效属性列表
-     */
-    var properties = ['mode', 'time', 'text', 'render', 'style'];
-
-    /**
-     * 发送新弹幕
-     * @param {Object} obj - 弹幕对象
-     * @param {string} [obj.mode] - 弹幕模式 (rtl/ltr/top/bottom)
-     * @param {number} [obj.time] - 显示时间
-     * @param {string} obj.text - 弹幕文本
-     * @param {Function} [obj.render] - 自定义渲染函数
-     * @param {Object} [obj.style] - 样式对象
-     * @returns {Object} 弹幕实例（支持链式调用）
-     */
-    /* eslint-disable no-invalid-this */
-    function emit(obj) {
-      if (!obj || Object.prototype.toString.call(obj) !== '[object Object]') {
-        return this;
-      }
-
-      var cmt = {};
-      // 只保留有效属性
-      for (var i = 0; i < properties.length; i++) {
-        if (obj[properties[i]] !== undefined) {
-          cmt[properties[i]] = obj[properties[i]];
-        }
-      }
-
-      cmt.text = (cmt.text || '').toString();  // 确保文本为字符串
-      cmt.mode = formatMode(cmt.mode);         // 格式化模式
-      cmt._utc = now() / 1000;                 // 设置UTC时间
-
-      if (this.media) {
-        var position = 0;
-        if (cmt.time === undefined) {
-          // 如果未指定时间，使用当前媒体时间
-          cmt.time = this.media.currentTime;
-          position = this._.position;
-        } else {
-          // 查找插入位置
-          position = binsearch(this.comments, 'time', cmt.time);
-          if (position < this._.position) {
-            this._.position += 1;  // 更新当前位置
-          }
-        }
-        this.comments.splice(position, 0, cmt);
-      } else {
-        this.comments.push(cmt);
-      }
-      return this;
-    }
+    function emit(obj) { return emit$1.call(this, obj); }
 
     /**
      * 显示弹幕
@@ -10174,159 +10329,6 @@
     // 定义speed属性的getter和setter
     Object.defineProperty(Danmaku.prototype, 'speed', speed);
 
-    /**
-     * 命中检测：在当前运行列表中找到与点击坐标匹配的弹幕
-     * @param {number} x 相对 stage 左上角坐标
-     * @param {number} y 相对 stage 左上角坐标
-     */
-    function hitDanmaku(x, y) {
-      // 从最上层(后绘制)开始，便于选择视觉上前景的弹幕
-      for (var i = this._.runningList.length - 1; i >= 0; i--) {
-        var c = this._.runningList[i];
-        if (x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height) return c;
-      }
-      return null;
-    }
-
-    /**
-     * 创建右键复制菜单
-     */
-    function setupCopyContextMenu() {
-      var that = this;
-      if (this._.copyMenuHandlers) return; // 已初始化
-      var menu = document.createElement('div');
-      menu.style.position = 'fixed';
-      menu.style.zIndex = '2147483646';
-      menu.style.background = 'rgba(30,30,30,0.95)';
-      menu.style.backdropFilter = 'blur(4px)';
-      menu.style.border = '1px solid rgba(255,255,255,0.15)';
-      menu.style.borderRadius = '6px';
-      menu.style.padding = '4px 0';
-      menu.style.minWidth = '96px';
-      menu.style.font = '12px/1.4 system-ui, sans-serif';
-      menu.style.color = '#f0f0f0';
-      menu.style.boxShadow = '0 4px 18px rgba(0,0,0,0.4)';
-      menu.style.userSelect = 'none';
-      menu.style.display = 'none';
-      menu.setAttribute('data-danmaku-copy-menu', '');
-
-      // 预览框（显示被命中的弹幕文本）
-      var preview = document.createElement('div');
-      preview.style.padding = '6px 10px 6px 10px';
-      preview.style.fontSize = '12px';
-      preview.style.lineHeight = '1.35';
-      preview.style.color = '#e5f6ff';
-      preview.style.maxWidth = '360px';
-      preview.style.maxHeight = '120px';
-      preview.style.overflow = 'auto';
-      preview.style.wordBreak = 'break-all';
-      preview.style.whiteSpace = 'pre-wrap';
-      preview.style.borderBottom = '1px solid rgba(255,255,255,0.08)';
-      preview.style.boxSizing = 'border-box';
-      preview.setAttribute('data-danmaku-preview', '');
-      menu.appendChild(preview);
-
-      function addItem(label, onClick) {
-        var item = document.createElement('div');
-        item.textContent = label;
-        item.style.padding = '4px 12px';
-        item.style.cursor = 'pointer';
-        item.style.whiteSpace = 'nowrap';
-        item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,255,255,0.08)'; });
-        item.addEventListener('mouseleave', function () { item.style.background = 'transparent'; });
-        item.addEventListener('click', function (e) {
-          e.stopPropagation();
-          try { onClick(); } catch (_) { }
-          hideMenu();
-        });
-        // 备用：提供 mousedown 触发兼容（不再打印日志）
-        item.addEventListener('mousedown', function (e) { if (e.button !== 0) return; });
-        menu.appendChild(item);
-      }
-
-      var currentCmt = null;
-
-      function hideMenu() {
-        menu.style.display = 'none';
-        currentCmt = null;
-      }
-
-      addItem('复制', function () {
-        if (!currentCmt) return;
-        var text = currentCmt.text || '';
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            var p = navigator.clipboard.writeText(text);
-            if (p && typeof p.then === 'function') {
-              p.then(function () {
-              }).catch(function (err) {
-                // 降级时输出一次警告
-                console.warn('[Danmaku] copy async failed, fallback to execCommand', err);
-                fallbackCopy(text);
-              });
-            }
-          } else {
-            fallbackCopy(text);
-          }
-        } catch (err) {
-          console.warn('[Danmaku] copy threw, fallback', err);
-          try { fallbackCopy(text); } catch (_) { }
-        }
-      });
-
-      document.body.appendChild(menu);
-      this._.copyMenu = menu;
-
-      function showAt(x, y) {
-        // 防溢出
-        var vw = window.innerWidth, vh = window.innerHeight;
-        menu.style.left = Math.min(x, vw - menu.offsetWidth - 4) + 'px';
-        menu.style.top = Math.min(y, vh - menu.offsetHeight - 4) + 'px';
-        menu.style.display = 'block';
-      }
-
-      function onContext(e) {
-        // 仅当点击区域覆盖在 stage 上方才检测
-        if (!that._.stage || !that._.stage.parentElement) return;
-        // 允许其他右键操作通过：如果点击目标在复制菜单内部直接返回
-        if (menu.contains(e.target)) return;
-        var rect = that._.stage.getBoundingClientRect();
-        var x = e.clientX - rect.left;
-        var y = e.clientY - rect.top;
-        if (x < 0 || y < 0 || x > rect.width || y > rect.height) return; // 不在画布区域
-        // 进行命中检测
-        var cmt = hitDanmaku.call(that, x, y);
-        if (!cmt) return; // 没有弹幕，不拦截
-        if (menu.style.display === 'block') menu.style.display = 'none';
-        currentCmt = cmt;
-        preview.textContent = cmt.text || '';
-        e.preventDefault();
-        e.stopPropagation();
-        menu.style.display = 'block';
-        showAt(e.clientX, e.clientY);
-      }
-
-      function onScroll() { hideMenu(); }
-      function onDocClickWrapped(e) { if (!menu.contains(e.target)) hideMenu(); }
-
-      document.addEventListener('contextmenu', onContext, true); // 仍用捕获，优先拦截
-      document.addEventListener('click', onDocClickWrapped, false); // 改为冒泡，避免抢先隐藏
-      document.addEventListener('scroll', onScroll, true);
-      this._.copyMenuHandlers = { onContext, onDocClick: onDocClickWrapped, onScroll };
-
-      function fallbackCopy(text) {
-        try {
-          var ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed'; ta.style.top = '-9999px';
-          document.body.appendChild(ta); ta.select();
-          var ok = false;
-          try { ok = document.execCommand('copy'); } catch (e) { console.warn('[Danmaku] execCommand copy error', e); }
-          document.body.removeChild(ta);
-        } catch (e) { console.warn('[Danmaku] fallback copy failed', e); }
-      }
-    }
-
     // 暴露为内部方法（如果未来需要外部开关）
     Danmaku.prototype._setupCopyContextMenu = function () { setupCopyContextMenu.call(this); };
 
@@ -10425,11 +10427,11 @@
         for (var ri = 0; ri < visibleList.length; ri++) {
           var vc = visibleList[ri];
           // 根据模式计算 x（复制 engine 内逻辑）
-      var baseW = (typeof vc._baseWidth === 'number' && isFinite(vc._baseWidth)) ? vc._baseWidth : vc.width;
-      var totalWidth = this._.width + baseW;
-      var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
-      if (vc.mode === 'ltr') vc.x = elapsed - baseW;
-      if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
+          var baseW = (typeof vc._baseWidth === 'number' && isFinite(vc._baseWidth)) ? vc._baseWidth : vc.width;
+          var totalWidth = this._.width + baseW;
+          var elapsed = totalWidth * (dn - vc._utc) * pbr / duration;
+          if (vc.mode === 'ltr') vc.x = elapsed - baseW;
+          if (vc.mode === 'rtl') vc.x = this._.width - elapsed;
           if (vc.mode === 'top' || vc.mode === 'bottom') {
             if (vc._markDisplay && typeof vc._textWidth === 'number' && typeof vc._textLeft === 'number') {
               var __tc = vc._textLeft + vc._textWidth / 2;
@@ -10626,13 +10628,34 @@
             return { status: 'exists', canvas: existingCanvas };
         }
         if (!duration || !isFinite(duration) || duration <= 0) {
+            // 持续重试直到拿到有效 duration：监听事件 + 轮询
             try {
-                logger?.debug?.('video.duration 未就绪，等待 loadedmetadata 再生成热力图');
-                const once = () => {
-                    try { video.removeEventListener('loadedmetadata', once); } catch (_) { }
+                const g = getGlobal();
+                if (g.__heatmapWaiting) {
+                    logger?.debug?.('video.duration 未就绪，已在等待中');
+                    return null;
+                }
+                logger?.debug?.('video.duration 未就绪，开始等待直到可用');
+                g.__heatmapWaiting = true;
+                const isReady = () => {
+                    const d = video?.duration || 0;
+                    return !!d && isFinite(d) && d > 0;
+                };
+                const cleanup = () => {
+                    try { clearInterval(g.__heatmapWaitTimer); } catch (_) { }
+                    g.__heatmapWaitTimer = null;
+                    try { video.removeEventListener('loadedmetadata', onReady); } catch (_) { }
+                    try { video.removeEventListener('durationchange', onReady); } catch (_) { }
+                    g.__heatmapWaiting = false;
+                };
+                const onReady = () => {
+                    if (!isReady()) return;
+                    cleanup();
                     try { generateHeatmap(logger); } catch (_) { }
                 };
-                video.addEventListener('loadedmetadata', once, { once: true });
+                try { video.addEventListener('loadedmetadata', onReady); } catch (_) { }
+                try { video.addEventListener('durationchange', onReady); } catch (_) { }
+                g.__heatmapWaitTimer = setInterval(onReady, 300);
             } catch (_) { }
             return null;
         }
@@ -10813,6 +10836,10 @@
     // 提供少量辅助清理（可选使用）——非必须接口
     function cleanupAll(logger = null) {
         const g = getGlobal();
+        // 清理热力图等待计时器与标记
+        try { if (g.__heatmapWaitTimer) clearInterval(g.__heatmapWaitTimer); } catch (_) { }
+        g.__heatmapWaitTimer = null;
+        g.__heatmapWaiting = false;
         try { g.danmakuButtonsGroup?.destroy?.(); } catch (_) { }
         g.danmakuButtonsGroup = null;
 

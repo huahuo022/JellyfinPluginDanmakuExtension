@@ -170,13 +170,34 @@ export function generateHeatmap(logger = null) {
         return { status: 'exists', canvas: existingCanvas };
     }
     if (!duration || !isFinite(duration) || duration <= 0) {
+        // 持续重试直到拿到有效 duration：监听事件 + 轮询
         try {
-            logger?.debug?.('video.duration 未就绪，等待 loadedmetadata 再生成热力图');
-            const once = () => {
-                try { video.removeEventListener('loadedmetadata', once); } catch (_) { }
+            const g = getGlobal();
+            if (g.__heatmapWaiting) {
+                logger?.debug?.('video.duration 未就绪，已在等待中');
+                return null;
+            }
+            logger?.debug?.('video.duration 未就绪，开始等待直到可用');
+            g.__heatmapWaiting = true;
+            const isReady = () => {
+                const d = video?.duration || 0;
+                return !!d && isFinite(d) && d > 0;
+            };
+            const cleanup = () => {
+                try { clearInterval(g.__heatmapWaitTimer); } catch (_) { }
+                g.__heatmapWaitTimer = null;
+                try { video.removeEventListener('loadedmetadata', onReady); } catch (_) { }
+                try { video.removeEventListener('durationchange', onReady); } catch (_) { }
+                g.__heatmapWaiting = false;
+            };
+            const onReady = () => {
+                if (!isReady()) return;
+                cleanup();
                 try { generateHeatmap(logger); } catch (_) { }
             };
-            video.addEventListener('loadedmetadata', once, { once: true });
+            try { video.addEventListener('loadedmetadata', onReady); } catch (_) { }
+            try { video.addEventListener('durationchange', onReady); } catch (_) { }
+            g.__heatmapWaitTimer = setInterval(onReady, 300);
         } catch (_) { }
         return null;
     }
@@ -376,6 +397,10 @@ export function renderDanmaku(logger = null) {
 // 提供少量辅助清理（可选使用）——非必须接口
 export function cleanupAll(logger = null) {
     const g = getGlobal();
+    // 清理热力图等待计时器与标记
+    try { if (g.__heatmapWaitTimer) clearInterval(g.__heatmapWaitTimer); } catch (_) { }
+    g.__heatmapWaitTimer = null;
+    g.__heatmapWaiting = false;
     try { g.danmakuButtonsGroup?.destroy?.(); } catch (_) { }
     g.danmakuButtonsGroup = null;
 
