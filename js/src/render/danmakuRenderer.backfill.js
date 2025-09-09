@@ -1,6 +1,6 @@
 // 回填弹幕（seek 时让仍在窗口内的弹幕立即出现）
-import { binsearch } from './danmakuCanvas.utils';
-import { allocateImpl } from './danmakuCanvas.allocate';
+import { binsearch } from './danmakuRenderer.utils';
+import { allocateImpl } from './danmakuRenderer.allocate';
 
 function nowSec() {
   try {

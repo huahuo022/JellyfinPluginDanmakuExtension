@@ -1,6 +1,6 @@
 // 发送新弹幕逻辑拆分
-import { binsearch } from './danmakuCanvas.utils';
-import { formatMode } from './danmakuCanvas.utils';
+import { binsearch } from './danmakuRenderer.utils';
+import { formatMode } from './danmakuRenderer.utils';
 
 // 内部有效属性白名单
 var properties = ['mode', 'time', 'text', 'render', 'style'];

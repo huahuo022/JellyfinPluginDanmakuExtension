@@ -1,6 +1,6 @@
 // 轨道分配与碰撞相关拆分
-import { getOccupiedWidth, computeStaticExpireAt } from './danmakuCanvas.utils';
-import { isDynamicMarkEnabled } from './danmakuCanvas.settings';
+import { getOccupiedWidth, computeStaticExpireAt } from './danmakuRenderer.utils';
+import { isDynamicMarkEnabled } from './danmakuRenderer.settings';
 
 /**
  * 创建碰撞检测范围的初始边界

@@ -4,20 +4,20 @@ import {
   computeScale,
   getOccupiedWidth,
   getMotionWidth
-} from './danmakuCanvas.utils';
+} from './danmakuRenderer.utils';
 import {
   ensureRemoteFontLoaded,
   maybeRewriteStyleFont,
   canvasHeight,
   computeFontSize
-} from './danmakuCanvas.font';
-import { resetSpace as resetSpaceExternal, allocateImpl } from './danmakuCanvas.allocate';
-import { isDynamicMarkEnabled } from './danmakuCanvas.settings';
-import { setupCopyContextMenu } from './danmakuCanvas.menu';
-import { performSeekBackfill } from './danmakuCanvas.backfill';
-import { updateMarkSuffix as updateMarkSuffixExternal } from './danmakuCanvas.mark';
-import { emit as emitExternal } from './danmakuCanvas.emit';
-import { ratechange as ratechangeExternal } from './danmakuCanvas.ratechange';
+} from './danmakuRenderer.font';
+import { resetSpace as resetSpaceExternal, allocateImpl } from './danmakuRenderer.allocate';
+import { isDynamicMarkEnabled } from './danmakuRenderer.settings';
+import { setupCopyContextMenu } from './danmakuRenderer.menu';
+import { performSeekBackfill } from './danmakuRenderer.backfill';
+import { updateMarkSuffix as updateMarkSuffixExternal } from './danmakuRenderer.mark';
+import { emit as emitExternal } from './danmakuRenderer.emit';
+import { ratechange as ratechangeExternal } from './danmakuRenderer.ratechange';
 
 
 /**

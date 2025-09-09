@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-09T14:23:06.014Z
+ * 构建时间: 2025-09-09T19:57:51.626Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -9502,9 +9502,6 @@
     // 将加载器暴露到全局，便于设置页等直接调用
     try { __getGlobal().ensureRemoteFontLoaded = ensureRemoteFontLoaded; } catch (_) { }
 
-    // isDynamicMarkEnabled / getMarkThreshold 已迁移至 danmakuCanvas.settings
-
-    // 字体相关的 maybeRewriteStyleFont/canvasHeight 均从 danmakuCanvas.font 引入
 
     /**
      * 创建弹幕文本的Canvas画布
@@ -9674,8 +9671,7 @@
       }
     }
 
-    // 获取用于碰撞与路径计算的“占位宽度”，优先使用预留宽度
-    // 使用 utils 中的实现：getOccupiedWidth / getMotionWidth
+
 
     /**
      * 移除弹幕并释放资源
@@ -9746,18 +9742,7 @@
      * @param {number} ct 当前时间（秒）
      */
     function updateMarkSuffix(stage, cmt, ct) { return updateMarkSuffix$1(stage, cmt, ct, createCommentCanvas); }
-    /**
-     * 格式化弹幕模式
-     * @param {string} mode - 弹幕模式
-     * @returns {string} 标准化的弹幕模式
-     */
-    // 使用 utils 中的实现：formatMode
 
-    /**
-     * 创建碰撞检测范围的初始边界
-     * @returns {Array} 包含初始和结束边界的数组
-     */
-    // collidableRange 已迁移至 danmakuCanvas.allocate
 
     /**
      * 重置弹幕空间分配器
@@ -9994,7 +9979,7 @@
 
       // 在 seek 当下直接预回填一批历史弹幕，使“本应仍在屏幕上的”弹幕立即出现
       if (this._.backfillOnSeek) {
-      performSeekBackfill(this, position);
+        performSeekBackfill(this, position);
       }
       return this;
     }
@@ -10093,7 +10078,6 @@
       this._.paused = true;
 
       // 首帧字体就绪屏障：在第一条弹幕进入前等待需要的远程字体加载完成
-      // 全局设置中的 font_family 若为 /danmaku/font/
       var fontUrls = [];
       try {
         var g = __getGlobal();
@@ -11162,25 +11146,29 @@
             if (uiActive) return;
             const g = (typeof window !== 'undefined') ? (window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {}) : {};
 
-            // 根据媒体ID按需加载设置与数据（与按钮插入解耦）
+            // 根据媒体ID按需加载数据；仅在数据与设置就绪后再尝试创建渲染器
             const maybeLoadForMedia = (id) => {
                 if (!id) return;
                 try {
-                    if (!g.__lastSettingsLoadedForId) g.__lastSettingsLoadedForId = null;
-                    if (g.__lastSettingsLoadedForId === id) return;
-                    if (!g.danmakuSettings) {
-                        createAndMountDanmakuSettings({});
-                        logger.debug && logger.debug('已初始化默认弹幕设置');
-                    }
-                    g.__lastSettingsLoadedForId = id; // 先占位，避免短时间重复触发
+                    // 避免并发与重复
+                    if (g.__loadingMediaId === id || g.__lastSettingsLoadedForId === id) return;
+                    g.__loadingMediaId = id;
+                    g.__danmakuDataReady = false;
+
                     Promise.resolve(fetchDanmakuData(logger, id)).then(() => {
-                        // 数据到位后，尽力补齐渲染（容器未就绪时各自函数会自处理）
-                        try { generateHeatmap(logger); } catch (_) { }
-                        try { renderDanmaku(logger); } catch (_) { }
+                        // 数据拉取成功，认为全局 danmakuSettings 已写入
+                        g.__lastSettingsLoadedForId = id;
+                        g.__danmakuDataReady = true;
+                        // 确保设置面板挂载（此时已具备真实设置值）
+                        try { createAndMountDanmakuSettings({}); } catch (_) {}
+                        // 尝试渲染（容器未就绪时各自函数会自处理/稍后由观察器再触发）
+                        try { maybeRenderIfReady(); } catch (_) {}
                     }).catch((e) => {
-                        logger.warn && logger.warn('updateDanmakuSettings 失败', e);
-                        // 失败时回滚标记以便后续重试
-                        try { if (g.__lastSettingsLoadedForId === id) g.__lastSettingsLoadedForId = null; } catch (_) {}
+                        logger.warn && logger.warn('fetchDanmakuData 失败', e);
+                        // 失败允许后续重试
+                        if (g.__lastSettingsLoadedForId === id) g.__lastSettingsLoadedForId = null;
+                    }).finally(() => {
+                        if (g.__loadingMediaId === id) g.__loadingMediaId = null;
                     });
                 } catch (e) { /* ignore */ }
             };
@@ -11225,22 +11213,25 @@
             };
             const allReady = () => isButtonsReady() && isHeatmapReady() && isDanmakuReady();
 
+            // 仅当数据就绪时尝试渲染器与热力图
+            const maybeRenderIfReady = () => {
+                if (!g.__danmakuDataReady) return;
+                try { generateHeatmap(logger); } catch (_) { }
+                try { renderDanmaku(logger); } catch (_) { }
+            };
+
             const tryInitOnce = () => {
                 const video = document.querySelector('video.htmlvideoplayer');
                 if (!video) return false;
                 cleanupDuplicates();
 
-                // 仅在未就绪时尝试插入/生成，避免频繁 resize / 重建
+                // 仅在未就绪时尝试插入按钮；渲染器等待数据就绪后再触发
                 let btnRes = { status: 'skipped' };
                 if (!isButtonsReady()) {
                     btnRes = attachButtonsGroup(logger);
                 }
-                if (!isHeatmapReady()) {
-                    generateHeatmap(logger);
-                }
-                if (!isDanmakuReady()) {
-                    renderDanmaku(logger);
-                }
+                // 将渲染动作交由 maybeRenderIfReady 来控制（数据就绪后会多次被触发）
+                maybeRenderIfReady();
 
                 // 以“至少按钮插入成功”作为激活条件；所有组件就绪交给持久监听继续完成
                 return btnRes && btnRes.status !== 'no-container';
@@ -11281,11 +11272,13 @@
 
             // 安装持久化监听与增强触发
             const setupPersistentWatchers = () => {
-                // 1) MutationObserver：childList + attributes(style/class)，直到 allReady()
+            // 1) MutationObserver：childList + attributes(style/class)，直到 allReady()
                 try {
                     const obs = new MutationObserver(() => {
-                        try { if (allReady()) return; } catch (_) {}
-                        debouncedTry();
+                try { if (allReady()) return; } catch (_) {}
+                debouncedTry();
+                // DOM 有变化时也尝试一次受控渲染（数据未就绪时此调用是空操作）
+                maybeRenderIfReady();
                     });
                     obs.observe(document.body, {
                         childList: true,
@@ -11307,12 +11300,13 @@
                             return;
                         }
                         debouncedTry();
+                        maybeRenderIfReady();
                     }, 1000);
                 } catch (_) { }
 
                 // 3) 一次性 mousemove：控制条显隐常依赖鼠标，首次移动强制重试
                 try {
-                    const onMove = () => { debouncedTry(); try { document.removeEventListener('mousemove', onMove); } catch (_) {} g.__uiInitMouseMove = null; };
+                    const onMove = () => { debouncedTry(); maybeRenderIfReady(); try { document.removeEventListener('mousemove', onMove); } catch (_) {} g.__uiInitMouseMove = null; };
                     document.addEventListener('mousemove', onMove, { once: true });
                     g.__uiInitMouseMove = onMove;
                 } catch (_) { }
@@ -11322,8 +11316,8 @@
             if (done) {
                 finishAndLoadData();
             }
-            // 即便未完成，也尝试基于当前已知媒体ID加载数据
-            try { const idNow = state.mediaItemId; if (idNow) maybeLoadForMedia(idNow); } catch (_) { }
+        // 即便未完成，也尝试基于当前已知媒体ID加载数据
+        try { const idNow = state.mediaItemId; if (idNow) maybeLoadForMedia(idNow); } catch (_) { }
             setupPersistentWatchers();
         }
 
@@ -11367,18 +11361,24 @@
                             try {
                                 const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
                                 if (!g.__maybeLoadForMedia) {
-                                    // 复用 activateUI 中的实现：简版保险（避免引用闭包）
+                                    // 复用 activateUI 中的策略：先确保数据与设置就绪，再尝试渲染
                                     g.__maybeLoadForMedia = (mid, loggerRef) => {
                                         if (!mid) return;
                                         try {
-                                            if (!g.__lastSettingsLoadedForId) g.__lastSettingsLoadedForId = null;
-                                            if (g.__lastSettingsLoadedForId === mid) return;
-                                            if (!g.danmakuSettings) { try { createAndMountDanmakuSettings({}); } catch (_) {} }
-                                            g.__lastSettingsLoadedForId = mid;
+                                            if (g.__loadingMediaId === mid || g.__lastSettingsLoadedForId === mid) return;
+                                            g.__loadingMediaId = mid;
+                                            g.__danmakuDataReady = false;
                                             Promise.resolve(fetchDanmakuData(loggerRef || logger, mid)).then(() => {
+                                                g.__lastSettingsLoadedForId = mid;
+                                                g.__danmakuDataReady = true;
+                                                try { createAndMountDanmakuSettings({}); } catch (_) {}
                                                 try { generateHeatmap(loggerRef || logger); } catch (_) {}
                                                 try { renderDanmaku(loggerRef || logger); } catch (_) {}
-                                            }).catch(() => { try { if (g.__lastSettingsLoadedForId === mid) g.__lastSettingsLoadedForId = null; } catch (_) {} });
+                                            }).catch(() => {
+                                                try { if (g.__lastSettingsLoadedForId === mid) g.__lastSettingsLoadedForId = null; } catch (_) {}
+                                            }).finally(() => {
+                                                if (g.__loadingMediaId === mid) g.__loadingMediaId = null;
+                                            });
                                         } catch (_) { }
                                     };
                                 }

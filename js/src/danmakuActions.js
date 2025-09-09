@@ -5,7 +5,7 @@
 
 import { DanmakuButtonsGroup } from './ui/buttons';
 import { DanmakuHeatmapRenderer } from './render/heatmapRenderer';
-import Danmaku from './render/danmakuCanvas.js';
+import Danmaku from './render/danmakuRenderer.js';
 
 const GLOBAL_NS = '__jfDanmakuGlobal__';
 function getGlobal() {

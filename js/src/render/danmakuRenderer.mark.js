@@ -1,6 +1,6 @@
 // 动态计数标记（“+n”徽标）逻辑
-import { maybeRewriteStyleFont, canvasHeight } from './danmakuCanvas.font';
-import { isDynamicMarkEnabled, getMarkThreshold } from './danmakuCanvas.settings';
+import { maybeRewriteStyleFont, canvasHeight } from './danmakuRenderer.font';
+import { isDynamicMarkEnabled, getMarkThreshold } from './danmakuRenderer.settings';
 
 // 单独维护 dpr，避免与主模块耦合
 var dpr = typeof window !== 'undefined' && window.devicePixelRatio || 1;
