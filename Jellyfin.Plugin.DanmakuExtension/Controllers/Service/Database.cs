@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Linq;
 
 namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 
@@ -55,6 +56,12 @@ public partial class DanmakuService
                 anime_title TEXT,
                 image_url TEXT,
                 offset INTEGER NOT NULL
+            );
+            
+            -- 源偏移数据表
+            CREATE TABLE IF NOT EXISTS source_shift (
+                item_id TEXT PRIMARY KEY,
+                data TEXT NOT NULL
             );
             
             -- 初始化统计数据
@@ -409,6 +416,87 @@ public partial class DanmakuService
         var rows = await cmd.ExecuteNonQueryAsync();
         _logger.LogInformation("Deleted {Rows} rows from match_data for preferred_id={PreferredId}", rows, preferredId);
         return rows;
+    }
+
+    /// <summary>
+    /// 根据 item_id 获取 source_shift 数据
+    /// </summary>
+    public async Task<string?> GetSourceShiftAsync(string itemId)
+    {
+        await InitializeDatabaseAsync();
+        using var connection = await OpenConnectionAsync();
+
+        var sql = "SELECT data FROM source_shift WHERE item_id = @item_id";
+        using var cmd = new SqliteCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@item_id", itemId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return result?.ToString();
+    }
+
+    /// <summary>
+    /// 更新 source_shift 数据
+    /// </summary>
+    public async Task UpdateSourceShiftAsync(string itemId, string sourceName, int shift)
+    {
+        await InitializeDatabaseAsync();
+        using var connection = await OpenConnectionAsync();
+
+        // 首先获取现有数据
+        var existingData = await GetSourceShiftAsync(itemId);
+        var sourceShifts = new List<SourceShiftItem>();
+
+        if (!string.IsNullOrEmpty(existingData))
+        {
+            try
+            {
+                sourceShifts = JsonSerializer.Deserialize<List<SourceShiftItem>>(existingData) ?? new List<SourceShiftItem>();
+            }
+            catch (JsonException)
+            {
+                sourceShifts = new List<SourceShiftItem>();
+            }
+        }
+
+        // 查找是否已存在该source_name
+        var existingItem = sourceShifts.FirstOrDefault(s => s.SourceName == sourceName);
+        
+        if (shift == 0)
+        {
+            // shift为0，删除该项
+            if (existingItem != null)
+            {
+                sourceShifts.Remove(existingItem);
+            }
+        }
+        else
+        {
+            // shift不为0，添加或更新
+            if (existingItem != null)
+            {
+                existingItem.Shift = shift;
+            }
+            else
+            {
+                sourceShifts.Add(new SourceShiftItem { SourceName = sourceName, Shift = shift });
+            }
+        }
+
+        // 序列化并保存
+        var newData = JsonSerializer.Serialize(sourceShifts);
+        
+        var sql = @"
+            INSERT OR REPLACE INTO source_shift (item_id, data) 
+            VALUES (@item_id, @data)";
+        
+        using var cmd = new SqliteCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@item_id", itemId);
+        cmd.Parameters.AddWithValue("@data", newData);
+        
+        await cmd.ExecuteNonQueryAsync();
+        
+        _logger.LogInformation("Updated source_shift for item_id={ItemId}, source_name={SourceName}, shift={Shift}", 
+            itemId, sourceName, shift);
     }
     #endregion
 }

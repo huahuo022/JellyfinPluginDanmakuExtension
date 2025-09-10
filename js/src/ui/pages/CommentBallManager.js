@@ -1,5 +1,6 @@
 // 小球管理器：负责小球的创建、物理、拖拽、菜单与黑名单交互
 import { saveIfAutoOn } from "../../api/utils";
+import { TimeShiftDialog } from "../dialogs/TimeShiftDialog";
 
 export class CommentBallManager {
   constructor(opts = {}) {
@@ -20,6 +21,8 @@ export class CommentBallManager {
     this._onMenuKey = null;
     this._stopMenuCap = null;
     this._stopMenuBubble = null;
+    // 时间偏移对话框
+    this._timeShiftDialog = new TimeShiftDialog(this.logger);
   }
 
   setContainers({ boxEl, trashZoneEl, panel }) {
@@ -351,6 +354,9 @@ export class CommentBallManager {
       }, { danger: true });
     }
     mkItem('查看来源信息（暂未实现）', () => { }, { disabled: true });
+    mkItem('时间轴偏移', async () => {
+      await this._showTimeShiftDialog(ball);
+    });
     mkItem('更多操作（暂未实现）', () => { }, { disabled: true });
     mkItem('取消', () => { });
 
@@ -415,6 +421,10 @@ export class CommentBallManager {
     try { if (this._onMenuKey) window.removeEventListener('keydown', this._onMenuKey); } catch (_) { }
     this._menuEl = null; this._menuBallRef = null; this._stopMenuBubble = null; this._stopMenuCap = null;
     this._onMenuDocDown = null; this._onMenuScroll = null; this._onMenuKey = null;
+  }
+
+  async _showTimeShiftDialog(ball) {
+    await this._timeShiftDialog.show(ball, this._panel);
   }
 
   _isPointInTrash(clientX, clientY) {

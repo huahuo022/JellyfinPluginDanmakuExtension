@@ -308,7 +308,7 @@ public partial class DanmakuService
         }
 
         // 解析 listJson 并处理弹幕
-        List<Pakku.DanmuObject> all = Pakku.ParseStandardJson(content);
+        List<Pakku.DanmuObject> all = await ParseStandardJsonAsync(content, itemId);
         content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle, danmakuId);
 
         return new DanmakuResult
