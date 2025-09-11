@@ -7,6 +7,14 @@ namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 
 public partial class DanmakuService
 {
+    public class ExtSourceItem
+    {
+        public string SourceName { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public bool Enable { get; set; } = true;
+    }
+
     #region 数据库操作
     public async Task InitializeDatabaseAsync()
     {
@@ -58,10 +66,11 @@ public partial class DanmakuService
                 offset INTEGER NOT NULL
             );
             
-            -- 源偏移数据表
-            CREATE TABLE IF NOT EXISTS source_shift (
+            -- 源设置数据表
+            CREATE TABLE IF NOT EXISTS source_setting (
                 item_id TEXT PRIMARY KEY,
-                data TEXT NOT NULL
+                shift_data TEXT NOT NULL,
+                ext_source TEXT NOT NULL
             );
             
             -- 初始化统计数据
@@ -419,14 +428,14 @@ public partial class DanmakuService
     }
 
     /// <summary>
-    /// 根据 item_id 获取 source_shift 数据
+    /// 根据 item_id 获取 source_setting 数据
     /// </summary>
     public async Task<string?> GetSourceShiftAsync(string itemId)
     {
         await InitializeDatabaseAsync();
         using var connection = await OpenConnectionAsync();
 
-        var sql = "SELECT data FROM source_shift WHERE item_id = @item_id";
+        var sql = "SELECT shift_data FROM source_setting WHERE item_id = @item_id";
         using var cmd = new SqliteCommand(sql, connection);
         cmd.Parameters.AddWithValue("@item_id", itemId);
 
@@ -435,7 +444,7 @@ public partial class DanmakuService
     }
 
     /// <summary>
-    /// 更新 source_shift 数据
+    /// 更新 source_setting 数据
     /// </summary>
     public async Task UpdateSourceShiftAsync(string itemId, string sourceName, int shift)
     {
@@ -460,7 +469,7 @@ public partial class DanmakuService
 
         // 查找是否已存在该source_name
         var existingItem = sourceShifts.FirstOrDefault(s => s.SourceName == sourceName);
-        
+
         if (shift == 0)
         {
             // shift为0，删除该项
@@ -484,19 +493,113 @@ public partial class DanmakuService
 
         // 序列化并保存
         var newData = JsonSerializer.Serialize(sourceShifts);
-        
+
+        // 读取当前 ext_source，避免覆盖
+        string currentExtSource = await GetExtSourceAsync(itemId) ?? "[]";
+
         var sql = @"
-            INSERT OR REPLACE INTO source_shift (item_id, data) 
-            VALUES (@item_id, @data)";
-        
+            INSERT OR REPLACE INTO source_setting (item_id, shift_data, ext_source) 
+            VALUES (@item_id, @shift_data, @ext_source)";
+
         using var cmd = new SqliteCommand(sql, connection);
         cmd.Parameters.AddWithValue("@item_id", itemId);
-        cmd.Parameters.AddWithValue("@data", newData);
-        
+        cmd.Parameters.AddWithValue("@shift_data", newData);
+        cmd.Parameters.AddWithValue("@ext_source", currentExtSource);
+
         await cmd.ExecuteNonQueryAsync();
-        
-        _logger.LogInformation("Updated source_shift for item_id={ItemId}, source_name={SourceName}, shift={Shift}", 
+
+        _logger.LogInformation("Updated source_setting for item_id={ItemId}, source_name={SourceName}, shift={Shift}",
             itemId, sourceName, shift);
+    }
+
+    /// <summary>
+    /// 根据 item_id 获取 ext_source JSON 字符串
+    /// </summary>
+    public async Task<string?> GetExtSourceAsync(string itemId)
+    {
+        await InitializeDatabaseAsync();
+        using var connection = await OpenConnectionAsync();
+
+        var sql = "SELECT ext_source FROM source_setting WHERE item_id = @item_id";
+        using var cmd = new SqliteCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@item_id", itemId);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return result?.ToString();
+    }
+
+    /// <summary>
+    /// 更新 ext_source 数据（增/删/替换单项）。当 Source 为空字符串时视为删除该 SourceName 项。
+    /// </summary>
+    public async Task UpdateExtSourceAsync(string itemId, string sourceName, string type, string source, bool enable)
+    {
+        await InitializeDatabaseAsync();
+        using var connection = await OpenConnectionAsync();
+
+        // 读取现有 ext_source
+        var existing = await GetExtSourceAsync(itemId);
+        var items = new List<ExtSourceItem>();
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            try
+            {
+                items = JsonSerializer.Deserialize<List<ExtSourceItem>>(existing!) ?? new List<ExtSourceItem>();
+            }
+            catch (JsonException)
+            {
+                items = new List<ExtSourceItem>();
+            }
+        }
+
+        // 执行增/删/替换
+        var existingItem = items.FirstOrDefault(i => i.SourceName == sourceName);
+        if (string.IsNullOrEmpty(source))
+        {
+            // 删除
+            if (existingItem != null)
+            {
+                items.Remove(existingItem);
+            }
+        }
+        else
+        {
+            if (existingItem != null)
+            {
+                // 替换
+                existingItem.Type = type;
+                existingItem.Source = source;
+                existingItem.Enable = enable;
+            }
+            else
+            {
+                // 新增
+                items.Add(new ExtSourceItem
+                {
+                    SourceName = sourceName,
+                    Type = type,
+                    Source = source,
+                    Enable = enable
+                });
+            }
+        }
+
+        var newExtSource = JsonSerializer.Serialize(items);
+
+        // 保留 shift_data，避免覆盖
+        var currentShiftData = await GetSourceShiftAsync(itemId) ?? "[]";
+
+        var upsertSql = @"
+            INSERT OR REPLACE INTO source_setting (item_id, shift_data, ext_source)
+            VALUES (@item_id, @shift_data, @ext_source)";
+
+        using var upsert = new SqliteCommand(upsertSql, connection);
+        upsert.Parameters.AddWithValue("@item_id", itemId);
+        upsert.Parameters.AddWithValue("@shift_data", currentShiftData);
+        upsert.Parameters.AddWithValue("@ext_source", newExtSource);
+
+        await upsert.ExecuteNonQueryAsync();
+
+        _logger.LogInformation("Updated ext_source for item_id={ItemId}, source_name={SourceName}, op={Op}", itemId, sourceName, string.IsNullOrEmpty(source) ? "delete" : (existingItem != null ? "replace" : "add"));
     }
     #endregion
 }

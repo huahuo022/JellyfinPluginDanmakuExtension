@@ -1,6 +1,7 @@
 // 小球管理器：负责小球的创建、物理、拖拽、菜单与黑名单交互
 import { saveIfAutoOn } from "../../api/utils";
 import { TimeShiftDialog } from "../dialogs/TimeShiftDialog";
+import { SourceInfoDialog } from "../dialogs/SourceInfoDialog";
 
 export class CommentBallManager {
   constructor(opts = {}) {
@@ -111,7 +112,7 @@ export class CommentBallManager {
     const H = Math.max(50, rect.height);
     const max = Math.max(...stats.map(s => s.count));
     const minR = 14, maxR = 44;
-    this._balls = stats.map((s, i) => {
+  this._balls = stats.map((s, i) => {
       const r = minR + (max > 0 ? (maxR - minR) * (s.count / max) : 0);
       const el = this._makeBallEl(`${s.name}\n${s.count}`, this._colorForIndex(i));
       el.style.width = `${Math.round(r * 2)}px`;
@@ -139,7 +140,7 @@ export class CommentBallManager {
       const _DRIFT_FORCE_MIN = 40, _DRIFT_FORCE_MAX = 120;
       const _driftMag = _DRIFT_FORCE_MIN + Math.random() * (_DRIFT_FORCE_MAX - _DRIFT_FORCE_MIN);
       const ball = {
-        el, name: s.name, count: s.count, x, y,
+        el, name: s.name, type: s.type, count: s.count, x, y,
         vx: 0, vy: 0, r, mass,
         dragging: false, _px: 0, _py: 0, _pt: 0,
         _driftFx: 0, _driftFy: 0,
@@ -353,7 +354,12 @@ export class CommentBallManager {
         await this._moveBallToTrash(ball, true);
       }, { danger: true });
     }
-    mkItem('查看来源信息（暂未实现）', () => { }, { disabled: true });
+    mkItem('查看来源信息', async () => {
+      try {
+        const dlg = new SourceInfoDialog(this.logger);
+        await dlg.show(ball, this._panel);
+      } catch (e) { this.logger?.warn?.('[CommentBallManager] 打开来源信息失败', e); }
+    });
     mkItem('时间轴偏移', async () => {
       await this._showTimeShiftDialog(ball);
     });
@@ -753,7 +759,7 @@ export class CommentBallManager {
           const _FMIN = 0.4, _FMAX = 1.2;
           const _mag = _FMIN + Math.random() * (_FMAX - _FMIN);
           const ball = {
-            el, name: rawName, count: 0, x: r, y: r,
+            el, name: rawName, type: undefined, count: 0, x: r, y: r,
             vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0, inTrash: true,
             _driftFx: 0, _driftFy: 0,
             _driftTargetFx: Math.cos(_ang) * _mag,
@@ -794,6 +800,112 @@ export class CommentBallManager {
 
     if (this._panel?.getAttribute('data-active') === 'true') {
       this._raf = requestAnimationFrame(this._step);
+    }
+  }
+
+  /**
+   * 增量更新：根据新的 stats 列表（[{name,count,...}]）
+   * 1) 已存在 -> 更新 count/半径/显示文本
+   * 2) 不存在 -> 新增小球（随机放置）
+   * 3) 多余 -> 移除 DOM 与事件
+   * 黑名单中的来源保持 inTrash 状态；新增来源若在黑名单初始集合中（仅首次初始化才读取），这里不再重新判定。
+   */
+  updateStats(stats) {
+    try {
+      if (!this._boxEl) return;
+      if (!Array.isArray(stats)) stats = [];
+      const map = new Map();
+      for (const s of stats) {
+        const key = String(s.name || '').trim();
+        if (!key) continue;
+        map.set(key.toLowerCase(), { raw: s, key });
+      }
+      // 1. 更新与标记保留
+      const existingByKey = new Map();
+      for (const b of this._balls) {
+        existingByKey.set(String(b.name || '').trim().toLowerCase(), b);
+      }
+      const rect = this._boxEl.getBoundingClientRect();
+      const W = Math.max(50, rect.width);
+      const H = Math.max(50, rect.height);
+      const max = stats.length ? Math.max(...stats.map(s => s.count)) : 0;
+      const minR = 14, maxR = 44;
+      // 更新现有
+    for (const [k, info] of map.entries()) {
+        const b = existingByKey.get(k);
+        if (b) {
+          const oldCount = b.count;
+          b.count = info.raw.count;
+      b.type = info.raw.type;
+          // 半径调整
+            const r = minR + (max > 0 ? (maxR - minR) * (b.count / max) : 0);
+            const changed = Math.abs(r - b.r) > 0.5;
+            b.r = r;
+            b.mass = r * r;
+            if (changed && !b.inTrash) {
+              // 尽量保持中心位置不突变：目前仅修改尺寸
+              b.el.style.width = `${Math.round(r * 2)}px`;
+              b.el.style.height = `${Math.round(r * 2)}px`;
+              try { if (b.el._bgWatermark) b.el._bgWatermark.style.fontSize = `${Math.max(12, Math.round(r * 1.1))}px`; } catch (_) { }
+            }
+            // 更新文本（数量）
+            try {
+              const parts = (b.el.title || '').split('(');
+              const namePart = info.raw.name || b.name;
+              b.el.title = `${namePart} (${b.count})`;
+              const fg = b.el.querySelector?.('.jf-ball-count');
+              if (fg) fg.textContent = String(b.count);
+            } catch (_) { }
+        }
+      }
+      // 2. 新增
+      const needAdd = [];
+      for (const s of stats) {
+        const key = String(s.name || '').trim().toLowerCase();
+        if (!existingByKey.has(key)) needAdd.push(s);
+      }
+      if (needAdd.length) {
+        const startIndex = this._balls.length;
+        const maxLocal = stats.length ? Math.max(...stats.map(s => s.count)) : 0;
+        for (let i = 0; i < needAdd.length; i++) {
+          const s = needAdd[i];
+          const r = minR + (maxLocal > 0 ? (maxR - minR) * (s.count / maxLocal) : 0);
+          const el = this._makeBallEl(`${s.name}\n${s.count}`, this._colorForIndex(startIndex + i));
+          el.style.width = `${Math.round(r * 2)}px`;
+          el.style.height = `${Math.round(r * 2)}px`;
+          const bgFS = Math.max(12, Math.round(r * 1.1));
+          if (el._bgWatermark) el._bgWatermark.style.fontSize = `${bgFS}px`;
+          this._boxEl.appendChild(el);
+          let x = r + Math.random() * (W - 2 * r);
+          let y = r + Math.random() * (H - 2 * r);
+          const ball = { el, name: s.name, type: s.type, count: s.count, x, y, vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0 };
+          this._attachDrag(ball);
+          this._balls.push(ball);
+        }
+      }
+      // 3. 删除不存在
+      const newSet = new Set(stats.map(s => String(s.name || '').trim().toLowerCase()));
+      const remain = [];
+      for (const b of this._balls) {
+        const key = String(b.name || '').trim().toLowerCase();
+        if (newSet.has(key) || b.inTrash) { // inTrash 的保留（如果来源被移除但用户手动拉黑，保留展示）
+          remain.push(b);
+        } else {
+          // 移除 DOM 与事件
+          try {
+            if (b.el?.parentElement) b.el.parentElement.removeChild(b.el);
+          } catch (_) { }
+          // 事件移除略（destroy 时统一做，这里只删除 DOM 足够轻量）
+        }
+      }
+      this._balls = remain;
+      // 若当前没有动画循环且面板激活，则启动
+      if (!this._raf && this._panel?.getAttribute('data-active') === 'true') {
+        this._lastT = 0;
+        this._raf = requestAnimationFrame(this._step);
+      }
+    } catch (e) {
+      this.logger?.warn?.('[CommentBallManager] updateStats 失败', e);
     }
   }
 

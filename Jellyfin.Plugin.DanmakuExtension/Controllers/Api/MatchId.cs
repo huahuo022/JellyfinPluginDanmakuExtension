@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using MediaBrowser.Controller.Library;
+using System.Linq;
 
 namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 
@@ -110,6 +111,93 @@ public partial class DanmakuController
         {
             _logger.LogError(ex, "Error saving match_data");
             return StatusCode(500, $"Error saving match_data: {ex.Message}");
+        }
+    }
+    #endregion
+
+    #region GET match_source_info
+    // 根据 episode_id 查询相关视频 URL 列表，并按域名包含 name 过滤
+    // 调用外部 /api/v2/related/{episodeId} 接口，返回 ["url1","url2"]
+    [HttpGet("match_source_info")]
+    [Produces("application/json")]
+    public async Task<IActionResult> GetMatchSourceInfo(
+        [FromQuery(Name = "episode_id")] string? episodeIdStr = null,
+        [FromQuery(Name = "name")] string? name = null)
+    {
+        try
+        {
+            // 兼容 episodeId 参数名
+            if (string.IsNullOrWhiteSpace(episodeIdStr)) episodeIdStr = Request.Query["episodeId"].ToString();
+            if (string.IsNullOrWhiteSpace(episodeIdStr) || !long.TryParse(episodeIdStr, out var episodeId) || episodeId <= 0)
+            {
+                return BadRequest("episode_id is required and must be a positive number");
+            }
+            var baseUrl = _danmakuService.GetBaseUrl();
+            var path = $"/api/v2/related/{episodeId}";
+            string json;
+            try
+            {
+                json = await _danmakuService.SendWithCacheAsync(HttpMethod.Get, baseUrl, path);
+            }
+            catch (Exception exFetch)
+            {
+                _logger.LogError(exFetch, "Error fetching related for episode {EpisodeId}", episodeId);
+                return StatusCode(500, $"Error fetching related: {exFetch.Message}");
+            }
+
+            var urls = new List<string>();
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("relateds", out var relArr) && relArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in relArr.EnumerateArray())
+                    {
+                        if (el.ValueKind != JsonValueKind.Object) continue;
+                        if (el.TryGetProperty("url", out var urlProp) && urlProp.ValueKind == JsonValueKind.String)
+                        {
+                            var u = urlProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(u)) urls.Add(u!);
+                        }
+                    }
+                }
+            }
+            catch (Exception exParse)
+            {
+                _logger.LogError(exParse, "Error parsing related JSON for episode {EpisodeId}", episodeId);
+                // 解析失败：返回 500
+                return StatusCode(500, $"Error parsing related JSON: {exParse.Message}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                var needle = name.Trim().ToLowerInvariant();
+                urls = urls.Where(u =>
+                {
+                    try
+                    {
+                        if (Uri.TryCreate(u, UriKind.Absolute, out var uri))
+                        {
+                            return uri.Host.ToLowerInvariant().Contains(needle);
+                        }
+                    }
+                    catch { }
+                    return false;
+                }).Distinct().ToList();
+            }
+            else
+            {
+                // 没有 name 参数则返回空（按需求可改为返回全部，这里遵循“只有匹配条件时才返回”理解）
+                urls = new List<string>();
+            }
+
+            var resultJson = JsonSerializer.Serialize(urls);
+            return Content(resultJson, "application/json", Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in match_source_info");
+            return StatusCode(500, $"Error match_source_info: {ex.Message}");
         }
     }
     #endregion

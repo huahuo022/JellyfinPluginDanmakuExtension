@@ -23,8 +23,8 @@ public partial class Pakku
         public int weight { get; set; } = 0;
         public string pool { get; set; } = string.Empty; // 表示字幕源
 
-    // 合并标记：改为记录簇内所有原始弹幕的 time_ms 列表；普通弹幕默认为仅包含自身 time_ms
-    public List<double> mark_count { get; set; } = new();
+        // 合并标记：改为记录簇内所有原始弹幕的 time_ms 列表；普通弹幕默认为仅包含自身 time_ms
+        public List<double> mark_count { get; set; } = new();
 
         public Extra extra { get; set; } = new();
         public PakkuMeta pakku { get; set; } = new();
@@ -96,11 +96,11 @@ public partial class Pakku
 
     public sealed class Stats
     {
-    // 仅保留需要的三个列表命中统计与四类合并原因统计，其它旧的 list 相关统计字段已精简移除
-    public int ignored_type { get; set; } = 0; // 非名单类（类型过滤）暂时保留，可用于后续需要
-    public int whitelist_count { get; set; } = 0;       // 命中白名单次数
-    public int blacklist_count { get; set; } = 0;       // 命中黑名单次数
-    public int forcelist_count { get; set; } = 0;       // 命中替换名单次数
+        // 仅保留需要的三个列表命中统计与四类合并原因统计，其它旧的 list 相关统计字段已精简移除
+        public int ignored_type { get; set; } = 0; // 非名单类（类型过滤）暂时保留，可用于后续需要
+        public int whitelist_count { get; set; } = 0;       // 命中白名单次数
+        public int blacklist_count { get; set; } = 0;       // 命中黑名单次数
+        public int forcelist_count { get; set; } = 0;       // 命中替换名单次数
 
         public int num_taolu_matched { get; set; } = 0;
         public int modified_enlarge { get; set; } = 0;
@@ -116,16 +116,23 @@ public partial class Pakku
         public int merged_pinyin { get; set; } = 0;           // 拼音近似
         public int merged_vector { get; set; } = 0;           // 词频向量近似（余弦）
 
-    // 解析后有效弹幕总数（已应用来源黑名单过滤后的数量）
-    public int original_total { get; set; } = 0;
+        // 解析后有效弹幕总数（已应用来源黑名单过滤后的数量）
+        public int original_total { get; set; } = 0;
 
-        // 弹幕来源统计
-        public Dictionary<string, int> source_stats { get; set; } = new();
 
         // 热力图数据
         public Dictionary<int, HeatmapData> heatmap_data { get; set; } = new();
     }
     #endregion
+
+    public sealed class SourceStatItem
+    {
+        public string source_name { get; set; } = string.Empty;
+        public int count { get; set; } = 0;
+        public string type { get; set; } = string.Empty;   // 预留（可与 ext_source 的类型对应）
+        public string source { get; set; } = string.Empty; // 预留（可与 ext_source 的路径/URL 对应）
+        public bool enable { get; set; } = true;           // 预留（可与 ext_source 的启用状态对应）
+    }
 
 
 }

@@ -8,7 +8,7 @@ public partial class DanmakuService
     /// <summary>
     /// 使用 Pakku 算法处理弹幕（直接接收 DanmakuConfig）
     /// </summary>
-    public string ProcessDanmakuWithPakku(List<Pakku.DanmuObject> all, DanmakuConfig cfg, string? episodeTitle = null, string danmakuId = "0")
+    public string ProcessDanmakuWithPakku(List<Pakku.DanmuObject> all, DanmakuConfig cfg, string? episodeTitle = null, string danmakuId = "0", List<Pakku.SourceStatItem>? collectedStats = null)
     {
         try
         {
@@ -26,7 +26,8 @@ public partial class DanmakuService
                 count = representatives.Count,
                 original_total = stats.original_total,
                 removed_count = stats.original_total - representatives.Count,
-                source_stats = stats.source_stats,
+                // 使用外部收集的来源统计（Pakku 内已不再维护）
+                source_stats = collectedStats ?? new List<Pakku.SourceStatItem>(),
                 merge_counts = new
                 {
                     identical = stats.merged_identical,

@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-09-10T10:45:29.322Z
+ * 构建时间: 2025-09-11T12:19:33.262Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -3069,6 +3069,252 @@
       }
     }
 
+    // 弹幕来源信息查看对话框
+    // 展示来源名称、类型、原始 source 文本；若 source 以 http/https 开头，提供可点击链接
+    class SourceInfoDialog {
+      constructor(logger = null) {
+        this.logger = logger;
+      }
+
+      async show(ball, panel = null) {
+        try {
+          if (!ball) return;
+          // 遮罩
+          const overlay = document.createElement('div');
+          overlay.style.position = 'fixed';
+          overlay.style.left = '0';
+          overlay.style.top = '0';
+          overlay.style.width = '100%';
+          overlay.style.height = '100%';
+          overlay.style.background = 'rgba(0,0,0,.5)';
+          overlay.style.zIndex = '1000000';
+          overlay.style.display = 'flex';
+          overlay.style.alignItems = 'center';
+          overlay.style.justifyContent = 'center';
+
+          // 对话框容器（沿用 ExtSourceDialog 风格）
+          const dialog = document.createElement('div');
+          dialog.style.background = 'rgba(0,0,0,.86)';
+          dialog.style.backdropFilter = 'blur(6px)';
+          dialog.style.border = '1px solid rgba(255,255,255,.18)';
+          dialog.style.borderRadius = '10px';
+          dialog.style.boxShadow = '0 8px 28px -6px rgba(0,0,0,.55), 0 4px 10px -2px rgba(0,0,0,.5)';
+          dialog.style.padding = '16px 18px 14px';
+          dialog.style.color = '#fff';
+          dialog.style.fontSize = '12px';
+          dialog.style.width = 'clamp(300px, 60vw, 420px)';
+          dialog.style.maxWidth = '90vw';
+          dialog.style.boxSizing = 'border-box';
+          dialog.style.maxHeight = 'min(70vh, 480px)';
+          dialog.style.overflowY = 'auto';
+
+          const title = document.createElement('div');
+          title.textContent = `来源信息 - ${ball.name}`;
+          title.style.fontSize = '14px';
+          title.style.fontWeight = '600';
+          title.style.marginBottom = '10px';
+          dialog.appendChild(title);
+
+          const fieldWrap = document.createElement('div');
+          fieldWrap.style.display = 'flex';
+          fieldWrap.style.flexDirection = 'column';
+          fieldWrap.style.gap = '10px';
+
+          const makeField = (label, contentNode) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.flexDirection = 'column';
+            row.style.gap = '4px';
+            const lab = document.createElement('div');
+            lab.textContent = label;
+            lab.style.opacity = '.85';
+            lab.style.fontSize = '11px';
+            lab.style.letterSpacing = '0.5px';
+            lab.style.fontWeight = '600';
+            lab.style.userSelect = 'none';
+            row.appendChild(lab);
+            row.appendChild(contentNode);
+            return row;
+          };
+
+          // 名称
+          const nameEl = document.createElement('div');
+          nameEl.textContent = ball.name || '';
+          nameEl.style.fontSize = '13px';
+          nameEl.style.wordBreak = 'break-all';
+          fieldWrap.appendChild(makeField('名称', nameEl));
+
+          // 类型
+          const typeEl = document.createElement('div');
+          typeEl.textContent = ball.type || '(未知)';
+          typeEl.style.fontSize = '13px';
+          fieldWrap.appendChild(makeField('类型', typeEl));
+
+          // source 信息：需要从全局 stats 查找，因为 ball 目前不直接持有 source 文本
+          let sourceText = '';
+          let needFetchMatch = false;
+          try {
+            const g = window.__jfDanmakuGlobal__ || {};
+            const list = Array.isArray(g?.danmakuData?.source_stats) ? g.danmakuData.source_stats : [];
+            const found = list.find(it => {
+              const n = it?.source_name ?? it?.sourceName ?? it?.SourceName;
+              return String(n || '').trim().toLowerCase() === String(ball.name || '').trim().toLowerCase();
+            });
+            sourceText = found?.source ?? found?.Source ?? '';
+            // 条件：类型为 match 且当前 source 为空 => 准备拉取匹配信息
+            if ((!sourceText || !String(sourceText).trim()) && (ball.type === 'match' || String(found?.type || found?.Type).toLowerCase() === 'match')) {
+              needFetchMatch = true;
+            }
+          } catch (_) { }
+
+          const srcBox = document.createElement('div');
+          srcBox.style.position = 'relative';
+          srcBox.style.background = 'rgba(255,255,255,.06)';
+          srcBox.style.border = '1px solid rgba(255,255,255,.18)';
+          srcBox.style.borderRadius = '6px';
+          srcBox.style.padding = '8px 10px';
+          srcBox.style.fontSize = '12px';
+          srcBox.style.lineHeight = '1.5';
+          srcBox.style.fontFamily = 'monospace';
+          srcBox.style.whiteSpace = 'pre-wrap';
+          srcBox.style.wordBreak = 'break-all';
+          srcBox.style.maxHeight = '160px';
+          srcBox.style.overflowY = 'auto';
+          const renderSource = (txt) => {
+            srcBox.innerHTML = '';
+            if (txt) {
+              if (/^https?:\/\//i.test(txt)) {
+                const a = document.createElement('a');
+                a.href = txt;
+                a.textContent = txt;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.style.color = '#4dabff';
+                a.style.textDecoration = 'underline';
+                a.style.wordBreak = 'break-all';
+                srcBox.appendChild(a);
+              } else {
+                srcBox.textContent = txt;
+              }
+            } else {
+              const empty = document.createElement('div');
+              empty.textContent = '(无 source 文本)';
+              empty.style.opacity = '.6';
+              srcBox.appendChild(empty);
+            }
+          };
+
+          if (sourceText) {
+            renderSource(sourceText);
+          } else if (needFetchMatch) {
+            // 显示加载占位
+            const loading = document.createElement('div');
+            loading.textContent = '正在获取匹配信息...';
+            loading.style.opacity = '.75';
+            srcBox.appendChild(loading);
+            // 异步获取匹配来源文本（后端端点尚未实现，失败时显示提示）
+            (async () => {
+              try {
+                if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) {
+                  throw new Error('缺少 ApiClient');
+                }
+                const g = window.__jfDanmakuGlobal__ || {};
+                const ep = g?.danmakuData?.episodeId || g?.danmakuData?.EpisodeId || '';
+                const name = ball.name || '';
+                // 假设后端接受参数 episode_id 与 name；若后端实现使用不同参数名，可在此调整
+                const url = ApiClient.getUrl(`danmaku/match_source_info?episode_id=${encodeURIComponent(ep)}&name=${encodeURIComponent(name)}`);
+                // 兼容返回纯文本或 JSON 数组
+                let raw = await ApiClient.ajax({ type: 'GET', url, dataType: 'text' });
+                if (raw && typeof raw !== 'string') {
+                  try { raw = JSON.stringify(raw); } catch (_) { raw = String(raw); }
+                }
+                let handled = false;
+                if (typeof raw === 'string') {
+                  const trimmed = raw.trim();
+                  if (trimmed.startsWith('[')) {
+                    try {
+                      const arr = JSON.parse(trimmed);
+                      if (Array.isArray(arr)) {
+                        srcBox.innerHTML = '';
+                        if (arr.length === 0) {
+                          renderSource('(未获取到匹配来源信息)');
+                        } else {
+                          // 渲染多个链接/行
+                          for (const u of arr) {
+                            const line = document.createElement('div');
+                            line.style.marginBottom = '6px';
+                            if (typeof u === 'string' && /^https?:\/\//i.test(u)) {
+                              const a = document.createElement('a');
+                              a.href = u; a.textContent = u; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                              a.style.color = '#4dabff'; a.style.textDecoration = 'underline'; a.style.wordBreak = 'break-all';
+                              line.appendChild(a);
+                            } else {
+                              line.textContent = String(u);
+                            }
+                            srcBox.appendChild(line);
+                          }
+                          handled = true;
+                        }
+                        handled = true;
+                      }
+                    } catch (_) { /* fallback to treat as text */ }
+                  }
+                  if (!handled) {
+                    if (trimmed) {
+                      renderSource(trimmed);
+                    } else {
+                      renderSource('(未获取到匹配来源信息)');
+                    }
+                  }
+                } else {
+                  renderSource('(未获取到匹配来源信息)');
+                }
+              } catch (err) {
+                this.logger?.warn?.('[SourceInfoDialog] 获取 match_source_info 失败', err);
+                renderSource('(获取匹配信息失败)');
+              }
+            })();
+          } else {
+            renderSource('');
+          }
+          fieldWrap.appendChild(makeField('Source', srcBox));
+
+          dialog.appendChild(fieldWrap);
+
+          // 操作按钮
+          const btnRow = document.createElement('div');
+          btnRow.style.display = 'flex';
+          btnRow.style.justifyContent = 'flex-end';
+          btnRow.style.gap = '10px';
+          btnRow.style.marginTop = '16px';
+          const btnClose = document.createElement('button');
+          btnClose.type = 'button';
+          btnClose.textContent = '关闭';
+          Object.assign(btnClose.style, {
+            cursor: 'pointer', fontSize: '12px', borderRadius: '6px', padding: '6px 14px',
+            border: '1px solid rgba(255,255,255,.28)', background: 'rgba(255,255,255,.15)', color: '#fff'
+          });
+          btnClose.onmouseenter = () => { btnClose.style.background = 'rgba(255,255,255,.22)'; };
+          btnClose.onmouseleave = () => { btnClose.style.background = 'rgba(255,255,255,.15)'; };
+          btnRow.appendChild(btnClose);
+          dialog.appendChild(btnRow);
+
+          const close = () => {
+            try { if (overlay.parentElement) overlay.parentElement.removeChild(overlay); } catch (_) { }
+          };
+
+          btnClose.addEventListener('click', close);
+          overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+          window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); }, { once: true });
+
+          overlay.appendChild(dialog);
+          (panel || document.body).appendChild(overlay);
+        } catch (e) {
+          this.logger?.warn?.('[SourceInfoDialog] 显示失败', e);
+        }
+      }
+    }
+
     // 小球管理器：负责小球的创建、物理、拖拽、菜单与黑名单交互
 
     class CommentBallManager {
@@ -3180,7 +3426,7 @@
         const H = Math.max(50, rect.height);
         const max = Math.max(...stats.map(s => s.count));
         const minR = 14, maxR = 44;
-        this._balls = stats.map((s, i) => {
+      this._balls = stats.map((s, i) => {
           const r = minR + (max > 0 ? (maxR - minR) * (s.count / max) : 0);
           const el = this._makeBallEl(`${s.name}\n${s.count}`, this._colorForIndex(i));
           el.style.width = `${Math.round(r * 2)}px`;
@@ -3208,7 +3454,7 @@
           const _DRIFT_FORCE_MIN = 40, _DRIFT_FORCE_MAX = 120;
           const _driftMag = _DRIFT_FORCE_MIN + Math.random() * (_DRIFT_FORCE_MAX - _DRIFT_FORCE_MIN);
           const ball = {
-            el, name: s.name, count: s.count, x, y,
+            el, name: s.name, type: s.type, count: s.count, x, y,
             vx: 0, vy: 0, r, mass,
             dragging: false, _px: 0, _py: 0, _pt: 0,
             _driftFx: 0, _driftFy: 0,
@@ -3422,7 +3668,12 @@
             await this._moveBallToTrash(ball, true);
           }, { danger: true });
         }
-        mkItem('查看来源信息（暂未实现）', () => { }, { disabled: true });
+        mkItem('查看来源信息', async () => {
+          try {
+            const dlg = new SourceInfoDialog(this.logger);
+            await dlg.show(ball, this._panel);
+          } catch (e) { this.logger?.warn?.('[CommentBallManager] 打开来源信息失败', e); }
+        });
         mkItem('时间轴偏移', async () => {
           await this._showTimeShiftDialog(ball);
         });
@@ -3821,7 +4072,7 @@
               const _FMIN = 0.4, _FMAX = 1.2;
               const _mag = _FMIN + Math.random() * (_FMAX - _FMIN);
               const ball = {
-                el, name: rawName, count: 0, x: r, y: r,
+                el, name: rawName, type: undefined, count: 0, x: r, y: r,
                 vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0, inTrash: true,
                 _driftFx: 0, _driftFy: 0,
                 _driftTargetFx: Math.cos(_ang) * _mag,
@@ -3865,6 +4116,112 @@
         }
       }
 
+      /**
+       * 增量更新：根据新的 stats 列表（[{name,count,...}]）
+       * 1) 已存在 -> 更新 count/半径/显示文本
+       * 2) 不存在 -> 新增小球（随机放置）
+       * 3) 多余 -> 移除 DOM 与事件
+       * 黑名单中的来源保持 inTrash 状态；新增来源若在黑名单初始集合中（仅首次初始化才读取），这里不再重新判定。
+       */
+      updateStats(stats) {
+        try {
+          if (!this._boxEl) return;
+          if (!Array.isArray(stats)) stats = [];
+          const map = new Map();
+          for (const s of stats) {
+            const key = String(s.name || '').trim();
+            if (!key) continue;
+            map.set(key.toLowerCase(), { raw: s, key });
+          }
+          // 1. 更新与标记保留
+          const existingByKey = new Map();
+          for (const b of this._balls) {
+            existingByKey.set(String(b.name || '').trim().toLowerCase(), b);
+          }
+          const rect = this._boxEl.getBoundingClientRect();
+          const W = Math.max(50, rect.width);
+          const H = Math.max(50, rect.height);
+          const max = stats.length ? Math.max(...stats.map(s => s.count)) : 0;
+          const minR = 14, maxR = 44;
+          // 更新现有
+        for (const [k, info] of map.entries()) {
+            const b = existingByKey.get(k);
+            if (b) {
+              const oldCount = b.count;
+              b.count = info.raw.count;
+          b.type = info.raw.type;
+              // 半径调整
+                const r = minR + (max > 0 ? (maxR - minR) * (b.count / max) : 0);
+                const changed = Math.abs(r - b.r) > 0.5;
+                b.r = r;
+                b.mass = r * r;
+                if (changed && !b.inTrash) {
+                  // 尽量保持中心位置不突变：目前仅修改尺寸
+                  b.el.style.width = `${Math.round(r * 2)}px`;
+                  b.el.style.height = `${Math.round(r * 2)}px`;
+                  try { if (b.el._bgWatermark) b.el._bgWatermark.style.fontSize = `${Math.max(12, Math.round(r * 1.1))}px`; } catch (_) { }
+                }
+                // 更新文本（数量）
+                try {
+                  const parts = (b.el.title || '').split('(');
+                  const namePart = info.raw.name || b.name;
+                  b.el.title = `${namePart} (${b.count})`;
+                  const fg = b.el.querySelector?.('.jf-ball-count');
+                  if (fg) fg.textContent = String(b.count);
+                } catch (_) { }
+            }
+          }
+          // 2. 新增
+          const needAdd = [];
+          for (const s of stats) {
+            const key = String(s.name || '').trim().toLowerCase();
+            if (!existingByKey.has(key)) needAdd.push(s);
+          }
+          if (needAdd.length) {
+            const startIndex = this._balls.length;
+            const maxLocal = stats.length ? Math.max(...stats.map(s => s.count)) : 0;
+            for (let i = 0; i < needAdd.length; i++) {
+              const s = needAdd[i];
+              const r = minR + (maxLocal > 0 ? (maxR - minR) * (s.count / maxLocal) : 0);
+              const el = this._makeBallEl(`${s.name}\n${s.count}`, this._colorForIndex(startIndex + i));
+              el.style.width = `${Math.round(r * 2)}px`;
+              el.style.height = `${Math.round(r * 2)}px`;
+              const bgFS = Math.max(12, Math.round(r * 1.1));
+              if (el._bgWatermark) el._bgWatermark.style.fontSize = `${bgFS}px`;
+              this._boxEl.appendChild(el);
+              let x = r + Math.random() * (W - 2 * r);
+              let y = r + Math.random() * (H - 2 * r);
+              const ball = { el, name: s.name, type: s.type, count: s.count, x, y, vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0 };
+              this._attachDrag(ball);
+              this._balls.push(ball);
+            }
+          }
+          // 3. 删除不存在
+          const newSet = new Set(stats.map(s => String(s.name || '').trim().toLowerCase()));
+          const remain = [];
+          for (const b of this._balls) {
+            const key = String(b.name || '').trim().toLowerCase();
+            if (newSet.has(key) || b.inTrash) { // inTrash 的保留（如果来源被移除但用户手动拉黑，保留展示）
+              remain.push(b);
+            } else {
+              // 移除 DOM 与事件
+              try {
+                if (b.el?.parentElement) b.el.parentElement.removeChild(b.el);
+              } catch (_) { }
+              // 事件移除略（destroy 时统一做，这里只删除 DOM 足够轻量）
+            }
+          }
+          this._balls = remain;
+          // 若当前没有动画循环且面板激活，则启动
+          if (!this._raf && this._panel?.getAttribute('data-active') === 'true') {
+            this._lastT = 0;
+            this._raf = requestAnimationFrame(this._step);
+          }
+        } catch (e) {
+          this.logger?.warn?.('[CommentBallManager] updateStats 失败', e);
+        }
+      }
+
       destroy() {
         try { if (this._raf) cancelAnimationFrame(this._raf); } catch (_) { }
         this._raf = null;
@@ -3891,6 +4248,392 @@
       }
     }
 
+    // 添加弹幕源编辑对话框
+
+    class ExtSourceDialog {
+        constructor(logger = null) {
+            this.logger = logger;
+        }
+
+        async show(opts = {}, panel = null) {
+            const { itemId, item = null, onSaved } = opts || {};
+            try {
+                if (!itemId) return;
+                if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) return;
+
+                            // 注入一次性样式：统一下拉框与选项为深色底白字，避免白底白字
+                            try {
+                                    if (!document.getElementById('danmaku-extsrc-style')) {
+                                            const styleEl = document.createElement('style');
+                                            styleEl.id = 'danmaku-extsrc-style';
+                                            styleEl.textContent = `
+.danmaku-extsrc-dialog select {
+    background-color: rgba(30,30,30,.92) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,.28) !important;
+    border-radius: 6px !important;
+    padding: 4px 6px !important;
+    font-size: 12px !important;
+}
+.danmaku-extsrc-dialog select:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.15) !important;
+}
+.danmaku-extsrc-dialog option {
+    background-color: #1e1e1e !important;
+    color: #fff !important;
+}
+/* 上传区域背景提示 */
+.danmaku-extsrc-drop { position: relative; }
+.danmaku-extsrc-drop::before {
+    content: '点击选择或将文件拖拽到此处';
+    position: absolute;
+    left: 12px; right: 12px;
+    top: 50%; transform: translateY(-50%);
+    color: rgba(255,255,255,.45);
+    font-size: 12px;
+    pointer-events: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.danmaku-extsrc-drop[data-hasfile="true"]::before { content: ''; }
+`;
+                                            document.head.appendChild(styleEl);
+                                    }
+                            } catch (_) { /* ignore */ }
+
+                // 遮罩
+                const overlay = document.createElement('div');
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+                overlay.style.background = 'rgba(0,0,0,.5)';
+                overlay.style.zIndex = '1000000';
+                overlay.style.display = 'flex';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+
+                // 对话框（参照 settingsPanel 的尺寸与样式）
+                const dialog = document.createElement('div');
+                dialog.className = 'danmaku-extsrc-dialog';
+                dialog.style.background = 'rgba(0,0,0,.86)';
+                dialog.style.backdropFilter = 'blur(6px)';
+                dialog.style.border = '1px solid rgba(255,255,255,.18)';
+                dialog.style.borderRadius = '10px';
+                dialog.style.boxShadow = '0 8px 28px -6px rgba(0,0,0,.55), 0 4px 10px -2px rgba(0,0,0,.5)';
+                dialog.style.padding = '12px 14px';
+                dialog.style.color = '#fff';
+                dialog.style.fontSize = '12px';
+                dialog.style.width = 'clamp(320px, 70vw, 380px)';
+                dialog.style.maxWidth = '90vw';
+                dialog.style.boxSizing = 'border-box';
+                dialog.style.maxHeight = 'min(70vh, 520px)';
+                dialog.style.overflowY = 'auto';
+
+                // 标题
+                const title = document.createElement('div');
+                title.textContent = item ? `编辑弹幕源 - ${item.SourceName}` : '新增弹幕源';
+                title.style.fontSize = '14px';
+                title.style.fontWeight = '600';
+                title.style.marginBottom = '8px';
+                title.style.color = '#fff';
+                dialog.appendChild(title);
+
+                // 表单行
+                const createRow = (labelText) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.gap = '10px';
+                    row.style.marginBottom = '10px';
+                    const lab = document.createElement('div');
+                    lab.style.minWidth = '96px';
+                    lab.style.opacity = '.9';
+                    lab.textContent = labelText;
+                    row.appendChild(lab);
+                    return { row, lab };
+                };
+
+                const nameRow = createRow('来源名称');
+                const txtName = document.createElement('input');
+                txtName.type = 'text';
+                txtName.placeholder = '例如：ext_bilibili';
+                Object.assign(txtName.style, { background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.25)', borderRadius: '6px', padding: '4px 6px', color: '#fff', flex: '1', fontSize: '12px' });
+                txtName.value = item?.SourceName || '';
+                txtName.disabled = !!item; // 修改时不可改名
+                nameRow.row.appendChild(txtName);
+                dialog.appendChild(nameRow.row);
+
+                const typeRow = createRow('类型');
+                const selType = document.createElement('select');
+                // 使用注入样式统一外观，避免被全局样式覆盖
+                for (const opt of [{ value: 'url', label: '链接' }, { value: 'file', label: '文件' }]) {
+                    const o = document.createElement('option'); o.value = opt.value; o.textContent = opt.label; selType.appendChild(o);
+                }
+                selType.value = item?.Type || 'url';
+                typeRow.row.appendChild(selType);
+                dialog.appendChild(typeRow.row);
+
+                const srcRow = createRow('来源');
+                const txtSource = document.createElement('input');
+                txtSource.type = 'text';
+                txtSource.placeholder = 'URL 或 文件路径';
+                Object.assign(txtSource.style, { background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.25)', borderRadius: '6px', padding: '4px 6px', color: '#fff', flex: '1', fontSize: '12px' });
+                txtSource.value = item?.Source || '';
+                srcRow.row.appendChild(txtSource);
+                dialog.appendChild(srcRow.row);
+
+                // 文件上传区域（仅当 Type = file 显示）
+                const uploadWrap = document.createElement('div');
+                uploadWrap.style.display = 'none';
+                uploadWrap.style.margin = '-4px 0 8px 96px'; // 与 label 对齐
+                const dropZone = document.createElement('div');
+                dropZone.style.border = '1px dashed rgba(255,255,255,.28)';
+                dropZone.style.borderRadius = '8px';
+                dropZone.style.padding = '10px';
+                dropZone.style.background = 'rgba(255,255,255,.06)';
+                dropZone.style.color = '#fff';
+                dropZone.style.cursor = 'pointer';
+                dropZone.style.userSelect = 'none';
+                dropZone.style.display = 'flex';
+                dropZone.style.alignItems = 'center';
+                dropZone.style.gap = '8px';
+                dropZone.classList.add('danmaku-extsrc-drop');
+                dropZone.setAttribute('data-hasfile', 'false');
+                const iconSpan = document.createElement('span');
+                iconSpan.textContent = '📄';
+                const tipSpan = document.createElement('span');
+                tipSpan.textContent = '点击选择或将文件拖拽到此处';
+                tipSpan.style.opacity = '.9';
+                tipSpan.style.fontSize = '12px';
+                const fileNameSpan = document.createElement('span');
+                fileNameSpan.style.marginLeft = 'auto';
+                fileNameSpan.style.fontSize = '12px';
+                fileNameSpan.style.opacity = '.85';
+                dropZone.appendChild(iconSpan);
+                // 文案改为背景提示，通过 ::before 实现，这里不再插入 tipSpan
+                dropZone.appendChild(fileNameSpan);
+                const statusSpan = document.createElement('div');
+                statusSpan.style.marginTop = '6px';
+                statusSpan.style.fontSize = '12px';
+                statusSpan.style.opacity = '.85';
+                statusSpan.textContent = '';
+                uploadWrap.appendChild(dropZone);
+                uploadWrap.appendChild(statusSpan);
+                dialog.appendChild(uploadWrap);
+
+                // 延迟上传：增加“上传”按钮（初始禁用，选择文件后启用），放在文件框下方并占满宽度
+                const btnUpload = document.createElement('button');
+                btnUpload.type = 'button';
+                btnUpload.textContent = '上传';
+                Object.assign(btnUpload.style, {
+                    cursor: 'pointer', fontSize: '13px', borderRadius: '6px', padding: '10px 12px',
+                    border: '1px solid rgba(60,180,110,.8)', background: 'linear-gradient(90deg, rgba(50,160,95,.85), rgba(40,140,85,.85))',
+                    color: '#eafff2', fontWeight: '600', marginTop: '8px', width: '100%',
+                    boxShadow: '0 2px 6px -2px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08) inset',
+                    opacity: '.55', transition: 'background .15s ease, opacity .15s ease'
+                });
+                btnUpload.disabled = true;
+                btnUpload.onmouseenter = () => { if (!btnUpload.disabled) btnUpload.style.background = 'linear-gradient(90deg, rgba(60,190,120,.9), rgba(50,170,105,.9))'; };
+                btnUpload.onmouseleave = () => { if (!btnUpload.disabled) btnUpload.style.background = 'linear-gradient(90deg, rgba(50,160,95,.85), rgba(40,140,85,.85))'; };
+                // 重新组织顺序：dropZone -> btnUpload -> statusSpan
+                uploadWrap.appendChild(btnUpload);
+                uploadWrap.appendChild(statusSpan);
+
+                let pendingFile = null; // 记录已选择但尚未上传的文件
+
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                // 限制常见弹幕/字幕文件类型，用户可切换为“所有文件”依然可选
+                try { fileInput.accept = '.xml,.json,.ass,.ssa,.srt'; } catch (_) { }
+                fileInput.style.display = 'none';
+                // 可根据需要限制扩展名，例如 .xml/.json/.ass 等，这里先不限制
+                dialog.appendChild(fileInput);
+
+                const setUploadVisible = () => {
+                    const isFile = selType.value === 'file';
+                    uploadWrap.style.display = isFile ? 'block' : 'none';
+                    // 文件模式：Source 自动填入，不允许手动修改
+                    txtSource.readOnly = isFile;
+                    if (isFile) {
+                        txtSource.placeholder = '上传成功后将自动填入';
+                        txtSource.style.background = 'rgba(255,255,255,.06)';
+                    } else {
+                        txtSource.placeholder = '请输入 URL（http/https）';
+                        txtSource.style.background = 'rgba(255,255,255,.1)';
+                    }
+                };
+                setUploadVisible();
+
+                const setStatus = (msg, color = 'rgba(255,255,255,.85)') => {
+                    statusSpan.textContent = msg || '';
+                    statusSpan.style.color = color;
+                };
+
+                const doUpload = async () => {
+                    if (!pendingFile) { setStatus('请先选择文件', 'rgba(255,180,120,.9)'); return; }
+                    const file = pendingFile;
+                    const sourceName = (txtName.value || '').trim();
+                    if (!sourceName) {
+                        setStatus('请先填写 SourceName 再上传文件', 'rgba(255,120,120,.9)');
+                        try { txtName.focus(); } catch (_) { }
+                        return;
+                    }
+                    btnUpload.disabled = true; btnUpload.style.opacity = '.55';
+                    setStatus('正在上传...');
+                    try {
+                        const url = ApiClient.getUrl('danmaku/upload_file');
+                        const contentBase64 = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(String(reader.result || ''));
+                            reader.onerror = () => reject(reader.error || new Error('read error'));
+                            reader.readAsDataURL(file);
+                        });
+                        const payload = { itemId: String(itemId), sourceName, contentBase64 };
+                        const data = await ApiClient.ajax({ type: 'POST', url, data: JSON.stringify(payload), contentType: 'application/json; charset=UTF-8', dataType: 'json' });
+                        const p = data && (data.path || data.Path || data.url || data.URL);
+                        if (!p) throw new Error('服务未返回 path');
+                        txtSource.value = String(p);
+                        setStatus('上传成功，已填入 Source');
+                        // 成功后可以允许再次上传替换：保留 pendingFile，启用按钮
+                        btnUpload.disabled = false; btnUpload.style.opacity = '1';
+                    } catch (e) {
+                        this.logger?.warn?.('[ExtSourceDialog] 文件上传失败', e);
+                        let msg = '';
+                        try {
+                            if (e?.responseText) {
+                                try { const j = JSON.parse(e.responseText); msg = j?.message || e.statusText || e.message || ''; }
+                                catch { msg = e.responseText || e.statusText || e.message || ''; }
+                            } else { msg = e?.statusText || e?.message || ''; }
+                        } catch (_) { }
+                        setStatus(`上传失败${msg ? `：${String(msg)}` : ''}`, 'rgba(255,120,120,.9)');
+                        btnUpload.disabled = false; btnUpload.style.opacity = '1';
+                    }
+                };
+
+                btnUpload.onclick = () => { doUpload(); };
+
+                const setPendingFile = (file) => {
+                    if (!file) return;
+                    pendingFile = file;
+                    fileNameSpan.textContent = file.name;
+                    dropZone.setAttribute('data-hasfile', 'true');
+                    // 规则：
+                    // 1) 若来源名称为空，则直接使用文件名
+                    // 2) 若来源名称非空，检查是否已以相同后缀结尾；若没有或不同则追加 .ext
+                    try {
+                        if (!item && !txtName.disabled) { // 仅在“新增”模式下自动填充
+                            const cur = (txtName.value || '').trim();
+                            const lastDot = file.name.lastIndexOf('.');
+                            const ext = (lastDot > 0 && lastDot < file.name.length - 1) ? file.name.slice(lastDot + 1) : '';
+                            if (!cur) {
+                                txtName.value = file.name; // 直接使用完整文件名
+                            } else if (ext) {
+                                const lowerCur = cur.toLowerCase();
+                                if (!lowerCur.endsWith('.' + ext.toLowerCase())) {
+                                    txtName.value = cur + '.' + ext;
+                                }
+                            }
+                        }
+                    } catch (_) { /* 忽略自动命名异常 */ }
+                    setStatus('已选择文件，点击“上传”开始上传');
+                    btnUpload.disabled = false; btnUpload.style.opacity = '1';
+                };
+
+                // 交互：点击区域 = 触发文件选择
+                dropZone.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', () => {
+                    const f = fileInput.files && fileInput.files[0];
+                    if (f) setPendingFile(f);
+                });
+                // 拖拽上传
+                dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.background = 'rgba(255,255,255,.12)'; });
+                dropZone.addEventListener('dragleave', () => { dropZone.style.background = 'rgba(255,255,255,.06)'; });
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault(); dropZone.style.background = 'rgba(255,255,255,.06)';
+                    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+                    if (f) setPendingFile(f);
+                });
+                selType.addEventListener('change', setUploadVisible);
+
+                // 切换类型时重置状态
+                selType.addEventListener('change', () => {
+                    if (selType.value !== 'file') {
+                        pendingFile = null;
+                        fileNameSpan.textContent = '';
+                        dropZone.setAttribute('data-hasfile', 'false');
+                        setStatus('');
+                        btnUpload.disabled = true; btnUpload.style.opacity = '.55';
+                    }
+                });
+
+                // 启用状态移至外层列表进行切换，这里不包含启用控件
+
+                // 按钮
+                const btns = document.createElement('div');
+                btns.style.display = 'flex';
+                btns.style.justifyContent = 'flex-end';
+                btns.style.gap = '10px';
+                const btnCancel = document.createElement('button');
+                const btnSave = document.createElement('button');
+                for (const b of [btnCancel, btnSave]) {
+                    b.type = 'button'; b.style.cursor = 'pointer'; b.style.fontSize = '12px'; b.style.borderRadius = '6px'; b.style.padding = '6px 10px'; b.style.border = '1px solid rgba(255,255,255,.25)'; b.style.background = 'rgba(255,255,255,.08)'; b.style.color = '#fff';
+                    b.onmouseenter = () => b.style.background = 'rgba(255,255,255,.15)';
+                    b.onmouseleave = () => b.style.background = 'rgba(255,255,255,.08)';
+                }
+                btnCancel.textContent = '取消';
+                btnSave.textContent = '保存';
+                btns.appendChild(btnCancel);
+                btns.appendChild(btnSave);
+                dialog.appendChild(btns);
+
+                // 事件
+                const close = () => { try { overlay.remove(); } catch (_) { } };
+                btnCancel.onclick = () => close();
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+                btnSave.onclick = async () => {
+                    try {
+                        const sourceName = (txtName.value || '').trim();
+                        if (!sourceName) { txtName.style.borderColor = 'rgba(255,80,80,.8)'; setTimeout(() => { txtName.style.borderColor = 'rgba(255,255,255,.25)'; }, 1500); return; }
+                        const type = selType.value || 'url';
+                        const source = (txtSource.value || '').trim();
+                        // 启用状态由外层控制：编辑时沿用原状态；新增默认启用
+                        const enable = item?.Enable ?? true;
+
+                        const url = ApiClient.getUrl('danmaku/ext_source');
+                        const form = new URLSearchParams();
+                        form.append('item_id', String(itemId));
+                        form.append('source_name', sourceName);
+                        form.append('type', type);
+                        form.append('source', source);
+                        form.append('enable', String(enable));
+                        await ApiClient.ajax({ type: 'POST', url, data: form.toString(), contentType: 'application/x-www-form-urlencoded; charset=UTF-8', dataType: 'json' });
+                        // POST 成功后触发一次自动保存
+                        try { await saveIfAutoOn(); } catch (_) { }
+                        // 派发全局事件：外部弹幕源已保存，供小球页面监听重建
+                        try {
+                            const evt = new Event('danmaku-ext-source-saved');
+                            window.dispatchEvent(evt);
+                        } catch (_) { }
+                        if (typeof onSaved === 'function') await onSaved();
+                        close();
+                    } catch (e) {
+                        this.logger?.warn?.('[ExtSourceDialog] 保存失败', e);
+                    }
+                };
+
+                // 将对话框挂载到遮罩，再挂到页面
+                overlay.appendChild(dialog);
+                (panel || document.body).appendChild(overlay);
+                setTimeout(() => { try { (item ? txtSource : txtName).focus(); } catch (_) { } }, 50);
+            } catch (e) {
+                this.logger?.warn?.('[ExtSourceDialog] 显示失败', e);
+            }
+        }
+    }
+
     // 弹幕池分页：来源统计 -> 物理小球（拖拽/碰撞/重力）
 
 
@@ -3900,23 +4643,31 @@
         this._boxEl = null;
         this._panel = null;
         this._trashZoneEl = null;
-      this._ballMgr = null;
+        this._ballMgr = null;
+        this._trashZoneBgHTML = null; // 保存黑名单区域初始水印内容，便于重建时恢复
+      this._onExtSourceSaved = null; // 事件句柄
       }
       getKey() { return 'commentpool'; }
-      getLabel() { return '弹幕池'; }
+      getLabel() { return '弹幕来源'; }
 
       _readStats() {
         try {
           const g = window.__jfDanmakuGlobal__ || {};
-          const stats = g?.danmakuData?.source_stats;
-          if (!stats || typeof stats !== 'object') return null;
-          const entries = Object.entries(stats)
-            .map(([name, v]) => ({ name, count: Number(v) || 0 }))
-            .filter(e => e.count > 0);
-          if (!entries.length) return null;
-          return entries;
+          const raw = g?.danmakuData?.source_stats;
+          if (!Array.isArray(raw)) return null; // 不再兼容旧字典结构
+          let entries = raw.map(item => {
+            const name = item?.source_name ?? item?.sourceName ?? item?.SourceName ?? '';
+            const count = Number(item?.count ?? item?.Count ?? 0) || 0;
+            const type = item?.type ?? item?.Type;
+            const source = item?.source ?? item?.Source;
+            const enable = item?.enable ?? item?.Enable;
+            return { name, count, type, source, enable };
+          }).filter(e => e && e.name && e.count > 0);
+          return entries.length ? entries : null;
         } catch (_) { return null; }
       }
+
+      // 取消统计签名逻辑，初始化与重建统一走 _rebuildBalls
 
       _createBox() {
         const box = document.createElement('div');
@@ -3934,7 +4685,7 @@
         return box;
       }
 
-      
+
 
       build() {
         const panel = document.createElement('div');
@@ -3994,11 +4745,12 @@
           z.appendChild(bg);
           return z;
         };
-      const box = this._createBox();
-      this._boxEl = box;
-      row.appendChild(box);
+        const box = this._createBox();
+        this._boxEl = box;
+        row.appendChild(box);
         // 将垃圾桶区域移动到主框下方（背景显示“黑名单”）
         this._trashZoneEl = makeZone('黑名单', 'left');
+        try { this._trashZoneBgHTML = this._trashZoneEl.innerHTML; } catch (_) { }
         // 触屏优化：垃圾桶区域允许纵向滚动，但拖拽小球本身会阻止默认
         this._trashZoneEl.style.touchAction = 'pan-y';
         this._trashZoneEl.style.margin = '8px 0 0 0';
@@ -4018,12 +4770,12 @@
         legendWrap.style.opacity = '0.95';
         desc.appendChild(legendTitle);
         desc.appendChild(legendWrap);
-      // 渲染函数：从小球管理器生成图例项
+        // 图例渲染函数（实例属性，便于后续重建调用）
         const renderLegend = () => {
           try {
             if (!legendWrap) return;
             legendWrap.innerHTML = '';
-        const balls = Array.isArray(this._ballMgr?.getBalls?.()) ? this._ballMgr.getBalls() : [];
+            const balls = Array.isArray(this._ballMgr?.getBalls?.()) ? this._ballMgr.getBalls() : [];
             for (const b of balls) {
               const item = document.createElement('div');
               item.style.display = 'inline-flex';
@@ -4036,49 +4788,393 @@
               dot.style.display = 'inline-block';
               dot.style.marginRight = '6px';
               dot.style.boxShadow = '0 0 0 1px rgba(255,255,255,.25) inset, 0 0 4px rgba(0,0,0,.35)';
-              // 直接复用小球背景（包含高光与渐变）
               try { dot.style.background = b?.el?.style?.background || '#999'; } catch (_) { dot.style.background = '#999'; }
               const txt = document.createElement('span');
               txt.style.fontSize = '12px';
               txt.style.opacity = '0.95';
-              // const name = (b?.name ?? '').toString();
-              // const count = Number(b?.count || 0);
-              txt.textContent = (b?.name ?? '').toString();;
+              try {
+                const nm = (b?.name ?? '').toString();
+                const tp = (b?.type ?? '').toString();
+                txt.textContent = tp ? `${nm}(${tp})` : nm;
+              } catch (_) { txt.textContent = (b?.name ?? '').toString(); }
               item.appendChild(dot);
               item.appendChild(txt);
               legendWrap.appendChild(item);
             }
-          } catch (_) { /* 忽略图例渲染异常 */ }
+          } catch (_) { }
         };
+        this._legendRender = renderLegend; // 保存引用
         row.appendChild(desc);
-
         list.appendChild(row);
         panel.appendChild(list);
 
+        // --- 添加弹幕源表单区 ---
+        const extRow = document.createElement('div');
+        extRow.className = 'danmaku-setting-row';
+        const extLabel = document.createElement('div');
+        extLabel.className = 'danmaku-setting-row__label';
+        const extTitle = document.createElement('span');
+        extTitle.className = 'danmaku-setting-row__labelText';
+        extTitle.textContent = '添加弹幕源';
+        extLabel.appendChild(extTitle);
+        extRow.appendChild(extLabel);
+
+        const extWrap = document.createElement('div');
+        extWrap.style.flex = '1';
+        extWrap.style.display = 'flex';
+        extWrap.style.flexDirection = 'column';
+        extWrap.style.gap = '8px';
+        extWrap.style.padding = '10px';
+        extWrap.style.border = '1px solid rgba(255,255,255,.15)';
+        extWrap.style.borderRadius = '10px';
+        extWrap.style.background = 'rgba(255,255,255,.05)';
+        extWrap.style.minHeight = '48px';
+        extWrap.style.position = 'relative';
+        extRow.appendChild(extWrap);
+
+        list.appendChild(extRow);
         // 数据与启动
-      const stats = this._readStats();
+        const stats = this._readStats();
         if (!stats) {
           const empty = document.createElement('div');
           empty.className = 'danmaku-setting-row__desc';
           empty.style.opacity = '.8';
           empty.textContent = '暂无来源统计数据。';
           list.appendChild(empty);
-          return panel;
         }
-      // 初始化小球管理器并填充数据
-      this._ballMgr = new CommentBallManager({ logger: this.logger });
-      this._ballMgr.setContainers({ boxEl: this._boxEl, trashZoneEl: this._trashZoneEl, panel });
-      this._ballMgr.initWithStats(stats);
-      // 初始化完小球后渲染一次图例
+      // 统一使用重建流程（首次）
+      this._rebuildBalls(stats);
       try { renderLegend(); } catch (_) { }
+
+        // 监听外部弹幕源保存事件（来自 ExtSourceDialog）以重建小球
+        this._onExtSourceSaved = () => {
+          try { this._rebuildBalls(this._readStats()); } catch (e) { this.logger?.warn?.('[CommentPoolPage] handle danmaku-ext-source-saved failed', e); }
+        };
+        try { window.addEventListener('danmaku-ext-source-saved', this._onExtSourceSaved, { passive: true }); } catch (_) { }
+
+        // 渲染添加弹幕源表单
+        try { this._renderExtSourceUI(extWrap); } catch (e) { this.logger?.warn?.('[CommentPoolPage] renderExtSourceUI error', e); }
         return panel;
       }
 
       // 清理资源，供上层在页面销毁/对话框关闭时调用
       destroy() {
-      try { this._ballMgr?.destroy?.(); } catch (_) { }
-      this._ballMgr = null;
-      this._trashZoneEl = null;
+        try { this._ballMgr?.destroy?.(); } catch (_) { }
+        this._ballMgr = null;
+        this._trashZoneEl = null;
+        try { if (this._onExtSourceSaved) window.removeEventListener('danmaku-ext-source-saved', this._onExtSourceSaved); } catch (_) { }
+        this._onExtSourceSaved = null;
+      }
+
+      _renderExtSourceUI(container) {
+        // 获取 itemId
+        const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
+        const itemId = g.getMediaId?.();
+        if (!itemId) {
+          container.innerHTML = '';
+          container.appendChild((() => { const d = document.createElement('div'); d.className = 'danmaku-setting-row__desc'; d.style.opacity = '.8'; d.textContent = '无法获取媒体ID，无法管理添加弹幕源。'; return d; })());
+          return;
+        }
+        if (typeof ApiClient === 'undefined' || !ApiClient.getUrl) {
+          container.innerHTML = '';
+          container.appendChild((() => { const d = document.createElement('div'); d.className = 'danmaku-setting-row__desc'; d.style.opacity = '.8'; d.textContent = '缺少 ApiClient，无法管理添加弹幕源。'; return d; })());
+          return;
+        }
+
+        const createButton = (text, variant = 'primary') => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = text;
+          btn.style.cursor = 'pointer';
+          btn.style.fontSize = '12px';
+          btn.style.borderRadius = '6px';
+          btn.style.padding = '6px 10px';
+          btn.style.marginLeft = '8px';
+          btn.style.border = '1px solid rgba(255,255,255,.25)';
+          btn.style.background = variant === 'danger' ? 'rgba(255,80,80,.15)' : 'rgba(255,255,255,.08)';
+          btn.style.color = '#fff';
+          btn.onmouseenter = () => { btn.style.background = variant === 'danger' ? 'rgba(255,80,80,.25)' : 'rgba(255,255,255,.15)'; };
+          btn.onmouseleave = () => { btn.style.background = variant === 'danger' ? 'rgba(255,80,80,.15)' : 'rgba(255,255,255,.08)'; };
+          return btn;
+        };
+
+        const fetchData = async () => {
+          const url = ApiClient.getUrl(`danmaku/ext_source?item_id=${encodeURIComponent(itemId)}`);
+          const response = await ApiClient.ajax({ type: 'GET', url, dataType: 'json' });
+          if (Array.isArray(response)) return response;
+          return [];
+        };
+
+        const postData = async ({ sourceName, type, source, enable }) => {
+          const url = ApiClient.getUrl('danmaku/ext_source');
+          const form = new URLSearchParams();
+          form.append('item_id', String(itemId));
+          form.append('source_name', sourceName);
+          form.append('type', type ?? 'url');
+          form.append('source', source ?? '');
+          form.append('enable', String(!!enable));
+          await ApiClient.ajax({ type: 'POST', url, data: form.toString(), contentType: 'application/x-www-form-urlencoded; charset=UTF-8', dataType: 'json' });
+          let autoOk = false;
+          try { await saveIfAutoOn(); autoOk = true; } catch (_) { }
+          if (autoOk) {
+            try { this._rebuildBalls(this._readStats()); } catch (e) { this.logger?.warn?.('[CommentPoolPage] rebuild balls failed', e); }
+          }
+        };
+
+        const render = async () => {
+          container.innerHTML = '';
+          let data = [];
+          try { data = await fetchData(); }
+          catch (e) {
+            this.logger?.warn?.('[CommentPoolPage] 获取添加弹幕源失败', e);
+            container.appendChild(renderInfo('获取添加弹幕源失败')); return;
+          }
+
+          const makeRow = (item) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.justifyContent = 'space-between';
+            row.style.gap = '8px';
+            row.style.padding = '8px 10px';
+            row.style.background = 'rgba(255,255,255,.04)';
+            row.style.border = '1px solid rgba(255,255,255,.12)';
+            row.style.borderRadius = '8px';
+
+            const left = document.createElement('div');
+            left.style.display = 'flex';
+            left.style.alignItems = 'center';
+            left.style.gap = '10px';
+            const nameSpan = document.createElement('span');
+            nameSpan.style.fontWeight = '600';
+            nameSpan.textContent = item?.SourceName ?? '';
+            left.appendChild(nameSpan);
+
+            const right = document.createElement('div');
+            right.style.display = 'flex';
+            right.style.alignItems = 'center';
+            // 启用/停用按钮放在最前
+            const btnToggle = createButton(item?.Enable ? '停用' : '启用', item?.Enable ? 'danger' : 'primary');
+            const btnEdit = createButton('修改');
+            const btnDel = createButton('删除', 'danger');
+            right.appendChild(btnToggle);
+            right.appendChild(btnEdit);
+            right.appendChild(btnDel);
+            btnToggle.onclick = async () => {
+              try {
+                await postData({
+                  sourceName: item?.SourceName || '',
+                  type: item?.Type || 'url',
+                  source: item?.Source || '',
+                  enable: !item?.Enable
+                });
+                await render();
+              } catch (e) { this.logger?.warn?.('[CommentPoolPage] 切换启用状态失败', e); }
+            };
+
+            btnEdit.onclick = async () => {
+              try {
+                const dialog = new ExtSourceDialog(this.logger);
+                await dialog.show({
+                  itemId,
+                  item: item,
+                  onSaved: async () => { await render(); }
+                }, this._panel);
+              } catch (e) { this.logger?.warn?.('[CommentPoolPage] 打开外部源编辑对话框失败', e); }
+            };
+            btnDel.onclick = async () => {
+              try {
+                const ok = await this._showConfirm({
+                  title: '确认删除',
+                  message: `确认删除添加弹幕源“${item?.SourceName || ''}”吗？${item?.Type === 'file' ? '（若为文件来源，将尝试删除磁盘中的对应文件）' : ''}`,
+                  confirmText: '删除',
+                  cancelText: '取消'
+                });
+                if (!ok) return;
+                // 删除时必须带上原来的 type，后端在 type === 'file' 时会尝试删除物理文件
+                await postData({ sourceName: item?.SourceName || '', type: item?.Type || 'url', source: '', enable: false });
+                await render();
+              } catch (e) { this.logger?.warn?.('[CommentPoolPage] 删除添加弹幕源失败', e); }
+            };
+
+            row.appendChild(left);
+            row.appendChild(right);
+            return row;
+          };
+
+          // 现有项
+          for (const item of data) container.appendChild(makeRow(item));
+
+          // 新增项（+）
+          const addRow = document.createElement('div');
+          addRow.style.display = 'flex';
+          addRow.style.alignItems = 'center';
+          addRow.style.justifyContent = 'center';
+          addRow.style.padding = '8px';
+          addRow.style.border = '1px dashed rgba(255,255,255,.3)';
+          addRow.style.borderRadius = '8px';
+          addRow.style.cursor = 'pointer';
+          addRow.style.userSelect = 'none';
+          addRow.style.background = 'rgba(255,255,255,.04)';
+          const plus = document.createElement('div'); plus.textContent = '+'; plus.style.fontSize = '18px'; plus.style.opacity = '.9';
+          addRow.appendChild(plus);
+          addRow.onclick = async () => {
+            try {
+              const dialog = new ExtSourceDialog(this.logger);
+              await dialog.show({
+                itemId,
+                item: null,
+                onSaved: async () => { await render(); }
+              }, this._panel);
+            } catch (e) { this.logger?.warn?.('[CommentPoolPage] 打开外部源新增对话框失败', e); }
+          };
+          container.appendChild(addRow);
+        };
+
+        // 首次渲染
+        render();
+      }
+
+      _rebuildBalls(stats) {
+        try {
+          if (!this._boxEl) return;
+          if (!Array.isArray(stats) || !stats.length) {
+            // 如果没有数据，清空但保留实例不再渲染小球
+            try { if (this._boxEl) this._boxEl.innerHTML = ''; } catch (_) { }
+            return;
+          }
+          if (!this._ballMgr) {
+            this._ballMgr = new CommentBallManager({ logger: this.logger });
+            this._ballMgr.setContainers({ boxEl: this._boxEl, trashZoneEl: this._trashZoneEl, panel: this._panel });
+            this._ballMgr.initWithStats(stats);
+          } else {
+            this._ballMgr.updateStats(stats);
+          }
+          try { this._legendRender?.(); } catch (_) { }
+        } catch (e) { this.logger?.warn?.('[CommentPoolPage] _rebuildBalls error', e); }
+      }
+
+      // 参考 SearchDanmakuPage 的统一确认弹窗
+      _ensureModalLayer() {
+        if (!this._panel) return null;
+        let overlay = this._panel.querySelector?.('.danmaku-modal-overlay');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'danmaku-modal-overlay';
+          overlay.style.position = 'fixed';
+          overlay.style.inset = '0';
+          overlay.style.display = 'none';
+          overlay.style.alignItems = 'center';
+          overlay.style.justifyContent = 'center';
+          overlay.style.background = 'rgba(0,0,0,.45)';
+          overlay.style.zIndex = '9999';
+          overlay.style.backdropFilter = 'blur(2px)';
+          this._panel.appendChild(overlay);
+        }
+        return overlay;
+      }
+
+      _showConfirm({ title = '确认', message = '确定执行该操作吗？', confirmText = '确定', cancelText = '取消' } = {}) {
+        return new Promise((resolve) => {
+          try {
+            const overlay = this._ensureModalLayer();
+            if (!overlay) { resolve(window.confirm?.(message)); return; }
+
+            overlay.innerHTML = '';
+            const wrap = document.createElement('div');
+            wrap.style.maxWidth = '420px';
+            wrap.style.width = 'min(90vw, 420px)';
+            wrap.style.background = 'rgba(30,30,30,.98)';
+            wrap.style.border = '1px solid rgba(255,255,255,.16)';
+            wrap.style.borderRadius = '10px';
+            wrap.style.boxShadow = '0 10px 30px rgba(0,0,0,.4)';
+            wrap.style.padding = '14px 16px 12px';
+            wrap.style.color = '#fff';
+            wrap.style.transform = 'scale(.96)';
+            wrap.style.opacity = '0';
+            wrap.style.transition = 'transform .15s ease, opacity .15s ease';
+
+            const h = document.createElement('div');
+            h.textContent = title;
+            h.style.fontSize = '15px';
+            h.style.fontWeight = '700';
+            h.style.marginBottom = '8px';
+
+            const msg = document.createElement('div');
+            msg.textContent = message;
+            msg.style.fontSize = '13px';
+            msg.style.opacity = '.92';
+            msg.style.lineHeight = '1.6';
+            msg.style.marginBottom = '12px';
+
+            const btnRow = document.createElement('div');
+            btnRow.style.display = 'flex';
+            btnRow.style.justifyContent = 'flex-end';
+            btnRow.style.gap = '8px';
+
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.textContent = cancelText;
+            cancel.style.padding = '6px 12px';
+            cancel.style.fontSize = '12px';
+            cancel.style.borderRadius = '6px';
+            cancel.style.border = '1px solid rgba(255,255,255,.20)';
+            cancel.style.background = 'rgba(255,255,255,.08)';
+            cancel.style.color = '#fff';
+
+            const ok = document.createElement('button');
+            ok.type = 'button';
+            ok.textContent = confirmText;
+            ok.style.padding = '6px 12px';
+            ok.style.fontSize = '12px';
+            ok.style.borderRadius = '6px';
+            ok.style.border = '1px solid rgba(220, 53, 69, .7)';
+            ok.style.background = 'rgba(220, 53, 69, .25)';
+            ok.style.color = '#ffdede';
+
+            btnRow.appendChild(cancel);
+            btnRow.appendChild(ok);
+
+            wrap.appendChild(h);
+            wrap.appendChild(msg);
+            wrap.appendChild(btnRow);
+            overlay.appendChild(wrap);
+
+            let prevOverflow = null;
+            try { prevOverflow = document.body && document.body.style ? document.body.style.overflow : null; } catch (_) { }
+
+            const close = (val) => {
+              try {
+                wrap.style.transform = 'scale(.96)';
+                wrap.style.opacity = '0';
+                setTimeout(() => {
+                  overlay.style.display = 'none';
+                  overlay.innerHTML = '';
+                  try { if (document.body && document.body.style) document.body.style.overflow = prevOverflow || ''; } catch (_) { }
+                  try { document.removeEventListener('keydown', onKey); } catch (_) { }
+                  resolve(val);
+                }, 140);
+              } catch (_) { overlay.style.display = 'none'; resolve(val); }
+            };
+
+            const onKey = (e) => {
+              if (e.key === 'Escape') { e.preventDefault?.(); close(false); }
+              if (e.key === 'Enter') { e.preventDefault?.(); close(true); }
+            };
+
+            cancel.addEventListener('click', () => close(false));
+            ok.addEventListener('click', () => close(true));
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+            document.addEventListener('keydown', onKey);
+
+            overlay.style.display = 'flex';
+            try { if (document.body && document.body.style) document.body.style.overflow = 'hidden'; } catch (_) { }
+            requestAnimationFrame(() => {
+              wrap.style.transform = 'scale(1)';
+              wrap.style.opacity = '1';
+            });
+          } catch (_) { resolve(false); }
+        });
       }
     }
 
@@ -4086,7 +5182,7 @@
     class HeatmapSettingsPage {
       constructor(opts = {}) { this.logger = opts.logger || null; }
       getKey() { return 'heatmap'; }
-      getLabel() { return '密度图'; }
+      getLabel() { return '密度曲线'; }
 
       // 读取并解析 heatmap_style JSON（带默认值与兜底）
       _getStyle() {

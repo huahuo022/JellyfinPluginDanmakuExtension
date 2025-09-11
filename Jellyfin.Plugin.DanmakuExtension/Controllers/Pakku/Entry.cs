@@ -21,8 +21,8 @@ public partial class Pakku
 
         var lists = BuildParsedLists(cfg);
 
-        var sourceStats = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        sourceStats.EnsureCapacity(all.Count);
+        var sourceCountDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        sourceCountDict.EnsureCapacity(all.Count);
 
         // 若配置了来源黑名单，则在统计同时过滤 all
         HashSet<string>? blackSourceSet = null;
@@ -37,7 +37,7 @@ public partial class Pakku
         {
             var key = string.IsNullOrEmpty(dm.pool) ? "unknown" : dm.pool;
             // 统计（基于未删减数据）
-            ref int count = ref CollectionsMarshal.GetValueRefOrAddDefault(sourceStats, key, out bool exists);
+            ref int count = ref CollectionsMarshal.GetValueRefOrAddDefault(sourceCountDict, key, out bool exists);
             if (exists) count++;
             else count = 1;
 
@@ -68,7 +68,7 @@ public partial class Pakku
             }).ToList();
 
             stats.original_total = all.Count;
-            stats.source_stats = sourceStats;
+            // source_stats 已外移由更高层收集，不再在 Pakku 内部写入
 
             // 生成热力图数据（根据配置: off | combined | original）
             GenerateHeatmapData(cfg, reps, all, stats);
@@ -125,7 +125,7 @@ public partial class Pakku
         }
 
         // 将弹幕来源统计与原始总条数添加到 stats 中
-        stats.source_stats = sourceStats;
+    // source_stats 已外移由更高层收集，不再在 Pakku 内部写入
         stats.original_total = all.Count;
 
         // 生成热力图数据（根据配置: off | combined | original）

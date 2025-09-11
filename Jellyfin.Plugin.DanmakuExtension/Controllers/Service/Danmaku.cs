@@ -22,17 +22,15 @@ public partial class DanmakuService
         {
             if (itemId == null || itemId == Guid.Empty)
             {
-                // 使用空数据走完整处理流程并返回内容
-                _logger?.LogError("GetDanmakuContent: missing itemId and danmakuId, returning empty content");
-                return BuildEmptyContentResult(config, matchedEpisodeTitle);
+                _logger?.LogError("GetDanmakuContent: missing itemId and danmakuId, attempting extra-only content");
+                return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
             }
 
             var item = _libraryManager.GetItemById(itemId.Value);
             if (item == null)
             {
-                // 使用空数据走完整处理流程并返回内容
-                _logger?.LogError("GetDanmakuContent: item {ItemId} not found, returning empty content", itemId);
-                return BuildEmptyContentResult(config, matchedEpisodeTitle);
+                _logger?.LogError("GetDanmakuContent: item {ItemId} not found, attempting extra-only content", itemId);
+                return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
             }
 
             // 检查该itemId的ProviderIds["danmaku"]是否为空
@@ -179,18 +177,16 @@ public partial class DanmakuService
 
                     if (!autoMatchEnabledForLibrary)
                     {
-                        // 未启用自动匹配：使用空数据走流程
-                        _logger?.LogError("GetDanmakuContent: auto-match disabled for library, returning empty content (itemId={ItemId})", itemId);
-                        return BuildEmptyContentResult(config, matchedEpisodeTitle);
+                        _logger?.LogError("GetDanmakuContent: auto-match disabled for library, attempting extra-only content (itemId={ItemId})", itemId);
+                        return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
                     }
 
                     var match = await TryAutoMatchDanmakuIdAsync(itemId.Value);
                     var autoMatchedId = match != null && match.EpisodeId > 0 ? match.EpisodeId.ToString() : null;
                     if (string.IsNullOrWhiteSpace(autoMatchedId))
                     {
-                        // 自动匹配失败：使用空数据走流程
-                        _logger?.LogError("GetDanmakuContent: auto-match failed for item {ItemId}, returning empty content", itemId);
-                        return BuildEmptyContentResult(config, matchedEpisodeTitle);
+                        _logger?.LogError("GetDanmakuContent: auto-match failed for item {ItemId}, attempting extra-only content", itemId);
+                        return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
                     }
 
                     danmakuId = autoMatchedId;
@@ -233,15 +229,13 @@ public partial class DanmakuService
         }
         catch (HttpRequestException ex)
         {
-            // 拉取弹幕失败：使用空数据走流程
-            _logger?.LogError(ex, "GetDanmakuContent: fetch comments failed for danmakuId={DanmakuId}, returning empty content", danmakuId);
-            return BuildEmptyContentResult(config, matchedEpisodeTitle);
+            _logger?.LogError(ex, "GetDanmakuContent: fetch comments failed for danmakuId={DanmakuId}, attempting extra-only content", danmakuId);
+            return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
         }
         catch (Exception ex)
         {
-            // 其它异常：使用空数据走流程
-            _logger?.LogError(ex, "GetDanmakuContent: unexpected error, returning empty content (danmakuId={DanmakuId})", danmakuId);
-            return BuildEmptyContentResult(config, matchedEpisodeTitle);
+            _logger?.LogError(ex, "GetDanmakuContent: unexpected error, attempting extra-only content (danmakuId={DanmakuId})", danmakuId);
+            return await BuildExtraContentResultAsync(itemId, config, matchedEpisodeTitle);
         }
 
 
@@ -307,9 +301,29 @@ public partial class DanmakuService
             catch { /* 容错：反查失败不影响主流程 */ }
         }
 
-        // 解析 listJson 并处理弹幕
-        List<Pakku.DanmuObject> all = await ParseStandardJsonAsync(content, itemId);
-        content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle, danmakuId);
+        // 解析标准弹幕（含初始来源统计）
+        var parsed = await ParseStandardJsonAsync(content, itemId);
+        var all = parsed.Danmus;
+        var collectedStats = new List<Pakku.SourceStatItem>(parsed.SourceStats);
+
+        // 读取额外弹幕源
+        var extra = await LoadExtraDanmakuAsync(itemId, config);
+        if (extra != null && extra.Danmus.Count > 0)
+        {
+            all.AddRange(extra.Danmus);
+            if (extra.SourceStats.Count > 0) collectedStats.AddRange(extra.SourceStats);
+        }
+
+        // 统一应用时间偏移（解析阶段已移除）
+        if (itemId.HasValue)
+        {
+            all = await ApplySourceShiftAsync(all, itemId.Value);
+        }
+
+
+        // 处理弹幕（含合并后的全部）
+        content = ProcessDanmakuWithPakku(all, config, matchedEpisodeTitle, danmakuId, collectedStats);
+
 
         return new DanmakuResult
         {
@@ -320,12 +334,33 @@ public partial class DanmakuService
 
     private DanmakuResult BuildEmptyContentResult(DanmakuConfig config, string? episodeTitle)
     {
-        var empty = new List<Pakku.DanmuObject>();
-        var content = ProcessDanmakuWithPakku(empty, config, episodeTitle, "0");
-        return new DanmakuResult
+        var content = ProcessDanmakuWithPakku(new List<Pakku.DanmuObject>(), config, episodeTitle, "0", new List<Pakku.SourceStatItem>());
+        return new DanmakuResult { Success = true, Content = content };
+    }
+
+    private async Task<DanmakuResult> BuildExtraContentResultAsync(Guid? itemId, DanmakuConfig config, string? episodeTitle)
+    {
+        var danmus = new List<Pakku.DanmuObject>();
+        var stats = new List<Pakku.SourceStatItem>();
+        if (itemId.HasValue && itemId.Value != Guid.Empty)
         {
-            Success = true,
-            Content = content
-        };
+            try
+            {
+                var extra = await LoadExtraDanmakuAsync(itemId, config);
+                if (extra != null && extra.Danmus.Count > 0)
+                {
+                    danmus.AddRange(extra.Danmus);
+                    if (extra.SourceStats.Count > 0) stats.AddRange(extra.SourceStats);
+                    // 时间偏移
+                    danmus = await ApplySourceShiftAsync(danmus, itemId.Value);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "BuildExtraContentResult: failed to load extra sources");
+            }
+        }
+        var content = ProcessDanmakuWithPakku(danmus, config, episodeTitle, "0", stats);
+        return new DanmakuResult { Success = true, Content = content };
     }
 }

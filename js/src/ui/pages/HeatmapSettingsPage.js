@@ -4,7 +4,7 @@ import { saveIfAutoOn } from "../../api/utils";
 export class HeatmapSettingsPage {
   constructor(opts = {}) { this.logger = opts.logger || null; }
   getKey() { return 'heatmap'; }
-  getLabel() { return '密度图'; }
+  getLabel() { return '密度曲线'; }
 
   // 读取并解析 heatmap_style JSON（带默认值与兜底）
   _getStyle() {

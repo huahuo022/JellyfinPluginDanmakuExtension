@@ -7,22 +7,22 @@ namespace Jellyfin.Plugin.DanmakuExtension.Controllers;
 public partial class DanmakuService
 {
     #region 弹幕解析
-    
+
     private static readonly Regex UID_SOURCE_RE = new(@"\[([^\]]+)\]", RegexOptions.Compiled);
-    
+
     /// <summary>
-    /// 解析标准弹幕 JSON (含 comments 数组) -> 返回 DanmuObject 列表。
-    /// 单独抽取，便于未来支持不同原始格式（XML、ASS、其他站点结构等）。
+    /// 解析标准弹幕 JSON (含 comments 数组)。
+    /// 返回弹幕列表与按来源统计（SourceStatItem）。
     /// </summary>
     /// <param name="inputJson">原始 JSON 字符串（包含 comments 数组）</param>
     /// <param name="itemId">可选的项目ID</param>
-    /// <returns>DanmuObject列表</returns>
-    public async Task<List<Pakku.DanmuObject>> ParseStandardJsonAsync(string inputJson, Guid? itemId = null)
+    /// <returns>ParsedDanmakuResult（含弹幕与来源统计）</returns>
+    public Task<ParsedDanmakuResult> ParseStandardJsonAsync(string inputJson, Guid? itemId = null)
     {
         using var doc = JsonDocument.Parse(inputJson);
         var root = doc.RootElement;
         if (!root.TryGetProperty("comments", out var commentsEl) || commentsEl.ValueKind != JsonValueKind.Array)
-            return new List<Pakku.DanmuObject>();
+            return Task.FromResult(new ParsedDanmakuResult());
 
         var all = new List<Pakku.DanmuObject>();
 
@@ -53,13 +53,32 @@ public partial class DanmakuService
             all.Add(dm);
         }
 
-        // 后处理：应用源偏移
-        if (itemId.HasValue)
-        {
-            all = await ApplySourceShiftAsync(all, itemId.Value);
-        }
+        // 不在解析阶段应用时间偏移，改为在主流程合并所有来源后统一处理
 
-        return all;
+        // 统计各来源数量（pool）
+        var stats = new List<Pakku.SourceStatItem>();
+        try
+        {
+            var groups = all.GroupBy(d => d.pool ?? string.Empty);
+            foreach (var g in groups)
+            {
+                stats.Add(new Pakku.SourceStatItem
+                {
+                    source_name = g.Key,
+                    count = g.Count(),
+                    type = "match",
+                    source = string.Empty,
+                    enable = true
+                });
+            }
+        }
+        catch { }
+
+        return Task.FromResult(new ParsedDanmakuResult
+        {
+            Danmus = all,
+            SourceStats = stats
+        });
     }
 
     /// <summary>
@@ -103,22 +122,22 @@ public partial class DanmakuService
             foreach (var danmu in danmus)
             {
                 var sourceName = danmu.pool ?? string.Empty;
-                
+
                 if (shiftMap.TryGetValue(sourceName, out var shift))
                 {
                     // 应用偏移
                     var newTimeMs = danmu.time_ms + shift;
-                    
+
                     if (newTimeMs < 0)
                     {
                         // 时间为负数，抛弃这条弹幕
                         removedCount++;
                         continue;
                     }
-                    
+
                     danmu.time_ms = newTimeMs;
                 }
-                
+
                 result.Add(danmu);
             }
 
@@ -135,6 +154,15 @@ public partial class DanmakuService
             return danmus;
         }
     }
-    
+
     #endregion
+}
+
+/// <summary>
+/// 标准解析返回结构：弹幕 + 来源统计
+/// </summary>
+public sealed class ParsedDanmakuResult
+{
+    public List<Pakku.DanmuObject> Danmus { get; set; } = new();
+    public List<Pakku.SourceStatItem> SourceStats { get; set; } = new();
 }
