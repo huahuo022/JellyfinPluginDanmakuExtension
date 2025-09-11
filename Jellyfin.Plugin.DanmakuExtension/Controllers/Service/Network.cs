@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Linq;
 
@@ -82,11 +83,14 @@ public partial class DanmakuService
 
         await IncrementCacheMissAsync();
 
-        using var req = new HttpRequestMessage(method, fullUrl);
+    using var req = new HttpRequestMessage(method, fullUrl);
         if (!string.IsNullOrEmpty(bodyString))
         {
             req.Content = new StringContent(bodyString, Encoding.UTF8, contentType ?? "application/json");
         }
+    // 请求端也声明可接受常见压缩编码
+    try { req.Headers.Remove("Accept-Encoding"); } catch { }
+    req.Headers.TryAddWithoutValidation("Accept-Encoding", "br, gzip, deflate");
         // 若为官方域名，则在此统一生成 dandanplay 所需认证请求头
         try
         {
@@ -141,7 +145,7 @@ public partial class DanmakuService
         // 允许调用方进行额外自定义（若有），可覆盖默认行为
         requestCustomizer?.Invoke(req);
 
-        // 自动跟随重定向（最多5次），重定向后改用 GET
+    // 自动跟随重定向（最多5次），重定向后改用 GET
         var currentResponse = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         try
         {
@@ -159,8 +163,90 @@ public partial class DanmakuService
             }
 
             currentResponse.EnsureSuccessStatusCode();
-            var text = await currentResponse.Content.ReadAsStringAsync();
-            if (IsJsonResponse(currentResponse, text))
+
+            // 读取原始字节并按 Content-Encoding 解压
+            var rawBytes = await currentResponse.Content.ReadAsByteArrayAsync();
+            byte[] decodedBytes = rawBytes;
+            try
+            {
+                var encodings = currentResponse.Content.Headers.ContentEncoding?.ToArray() ?? Array.Empty<string>();
+                if (encodings.Length > 0)
+                {
+                    // 处理链式编码，按添加顺序逆序解压（一般只有一个）
+                    for (int i = encodings.Length - 1; i >= 0; i--)
+                    {
+                        var enc = (encodings[i] ?? string.Empty).Trim().ToLowerInvariant();
+                        using var ms = new MemoryStream(decodedBytes);
+                        MemoryStream outMs = new MemoryStream();
+                        if (enc == "br")
+                        {
+                            using var br = new BrotliStream(ms, CompressionMode.Decompress, leaveOpen: false);
+                            br.CopyTo(outMs);
+                            decodedBytes = outMs.ToArray();
+                        }
+                        else if (enc == "gzip")
+                        {
+                            using var gz = new GZipStream(ms, CompressionMode.Decompress, leaveOpen: false);
+                            gz.CopyTo(outMs);
+                            decodedBytes = outMs.ToArray();
+                        }
+                        else if (enc == "deflate")
+                        {
+                            using var df = new DeflateStream(ms, CompressionMode.Decompress, leaveOpen: false);
+                            df.CopyTo(outMs);
+                            decodedBytes = outMs.ToArray();
+                        }
+                        else
+                        {
+                            // 未识别的编码，停止进一步处理
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    // 无 header 时，尝试按魔数侦测 gzip
+                    if (decodedBytes.Length >= 2 && decodedBytes[0] == 0x1F && decodedBytes[1] == 0x8B)
+                    {
+                        using var ms = new MemoryStream(decodedBytes);
+                        using var gz = new GZipStream(ms, CompressionMode.Decompress, leaveOpen: false);
+                        using var outMs = new MemoryStream();
+                        gz.CopyTo(outMs);
+                        decodedBytes = outMs.ToArray();
+                    }
+                }
+            }
+            catch
+            {
+                // 解压失败时退回原始字节
+                decodedBytes = rawBytes;
+            }
+
+            // 选择编码（优先使用 Content-Type 中的 charset，其次 BOM，最后 UTF-8）
+            Encoding encoding = Encoding.UTF8;
+            try
+            {
+                var charset = currentResponse.Content.Headers.ContentType?.CharSet;
+                if (!string.IsNullOrWhiteSpace(charset))
+                {
+                    encoding = Encoding.GetEncoding(charset!);
+                }
+                else if (decodedBytes.Length >= 3 && decodedBytes[0] == 0xEF && decodedBytes[1] == 0xBB && decodedBytes[2] == 0xBF)
+                {
+                    encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+                }
+                else if (decodedBytes.Length >= 2)
+                {
+                    if (decodedBytes[0] == 0xFF && decodedBytes[1] == 0xFE)
+                        encoding = Encoding.Unicode; // UTF-16 LE
+                    else if (decodedBytes[0] == 0xFE && decodedBytes[1] == 0xFF)
+                        encoding = Encoding.BigEndianUnicode; // UTF-16 BE
+                }
+            }
+            catch { }
+
+            var text = encoding.GetString(decodedBytes);
+            if (IsJsonResponse(currentResponse, text) || IsXmlResponse(currentResponse, text))
             {
                 await SaveDanmakuToCache(cacheKey, text);
             }
@@ -212,6 +298,23 @@ public partial class DanmakuService
         // 容错：简单判断文本开头
         var t = body?.TrimStart();
         return !string.IsNullOrEmpty(t) && (t!.StartsWith("{") || t!.StartsWith("["));
+    }
+
+    private static bool IsXmlResponse(HttpResponseMessage resp, string body)
+    {
+        try
+        {
+            var ct = resp.Content.Headers.ContentType?.MediaType ?? string.Empty;
+            if (!string.IsNullOrEmpty(ct) && ct.IndexOf("xml", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        }
+        catch { }
+        var t = body?.TrimStart();
+        if (string.IsNullOrEmpty(t)) return false;
+        // 排除明显的 HTML 页（避免把拦截页缓存）
+        var tLower = t.Length > 64 ? t.Substring(0, 64).ToLowerInvariant() : t.ToLowerInvariant();
+        if (tLower.StartsWith("<!doctype html") || tLower.StartsWith("<html")) return false;
+        return t.StartsWith("<");
     }
 
     /// <summary>

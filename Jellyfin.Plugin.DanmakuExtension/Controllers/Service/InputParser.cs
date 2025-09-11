@@ -68,7 +68,8 @@ public partial class DanmakuService
                     count = g.Count(),
                     type = "match",
                     source = string.Empty,
-                    enable = true
+                    enable = true,
+                    shift = 0
                 });
             }
         }
@@ -87,7 +88,7 @@ public partial class DanmakuService
     /// <param name="danmus">弹幕列表</param>
     /// <param name="itemId">项目ID</param>
     /// <returns>应用偏移后的弹幕列表</returns>
-    private async Task<List<Pakku.DanmuObject>> ApplySourceShiftAsync(List<Pakku.DanmuObject> danmus, Guid itemId)
+    private async Task<List<Pakku.DanmuObject>> ApplySourceShiftAsync(List<Pakku.DanmuObject> danmus, Guid itemId, List<Pakku.SourceStatItem>? stats = null)
     {
         try
         {
@@ -139,6 +140,23 @@ public partial class DanmakuService
                 }
 
                 result.Add(danmu);
+            }
+
+            // 同步统计中的 shift 字段（若提供 stats）
+            if (stats != null)
+            {
+                foreach (var s in stats)
+                {
+                    if (s == null) continue;
+                    if (shiftMap.TryGetValue(s.source_name ?? string.Empty, out var sh))
+                    {
+                        s.shift = sh;
+                    }
+                    else
+                    {
+                        s.shift = 0;
+                    }
+                }
             }
 
             if (removedCount > 0)

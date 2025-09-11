@@ -12,7 +12,7 @@ export class CommentPoolPage {
     this._trashZoneEl = null;
     this._ballMgr = null;
     this._trashZoneBgHTML = null; // 保存黑名单区域初始水印内容，便于重建时恢复
-  this._onExtSourceSaved = null; // 事件句柄
+    this._onExtSourceSaved = null; // 事件句柄
   }
   getKey() { return 'commentpool'; }
   getLabel() { return '弹幕来源'; }
@@ -28,7 +28,8 @@ export class CommentPoolPage {
         const type = item?.type ?? item?.Type;
         const source = item?.source ?? item?.Source;
         const enable = item?.enable ?? item?.Enable;
-        return { name, count, type, source, enable };
+        const shift = Number(item?.shift ?? item?.Shift ?? 0) || 0;
+        return { name, count, type, source, enable, shift };
       }).filter(e => e && e.name && e.count > 0);
       return entries.length ? entries : null;
     } catch (_) { return null; }
@@ -217,9 +218,9 @@ export class CommentPoolPage {
       empty.textContent = '暂无来源统计数据。';
       list.appendChild(empty);
     }
-  // 统一使用重建流程（首次）
-  this._rebuildBalls(stats);
-  try { renderLegend(); } catch (_) { }
+    // 统一使用重建流程（首次）
+    this._rebuildBalls(stats);
+    try { renderLegend(); } catch (_) { }
 
     // 监听外部弹幕源保存事件（来自 ExtSourceDialog）以重建小球
     this._onExtSourceSaved = () => {

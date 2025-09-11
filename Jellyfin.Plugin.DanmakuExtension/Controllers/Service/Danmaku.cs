@@ -317,7 +317,7 @@ public partial class DanmakuService
         // 统一应用时间偏移（解析阶段已移除）
         if (itemId.HasValue)
         {
-            all = await ApplySourceShiftAsync(all, itemId.Value);
+            all = await ApplySourceShiftAsync(all, itemId.Value, collectedStats);
         }
 
 
@@ -352,7 +352,7 @@ public partial class DanmakuService
                     danmus.AddRange(extra.Danmus);
                     if (extra.SourceStats.Count > 0) stats.AddRange(extra.SourceStats);
                     // 时间偏移
-                    danmus = await ApplySourceShiftAsync(danmus, itemId.Value);
+                    danmus = await ApplySourceShiftAsync(danmus, itemId.Value, stats);
                 }
             }
             catch (Exception ex)

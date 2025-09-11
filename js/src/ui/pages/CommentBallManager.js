@@ -48,6 +48,7 @@ export class CommentBallManager {
     el.style.height = '40px';
     el.style.borderRadius = '50%';
     el.style.display = 'flex';
+  el.style.flexDirection = 'column'; // 纵向堆叠：数量在上，shift 在下
     el.style.alignItems = 'center';
     el.style.justifyContent = 'center';
     el.style.color = '#fff';
@@ -89,6 +90,20 @@ export class CommentBallManager {
 
     el.appendChild(bg);
     el.appendChild(fg);
+  // shift 显示行（默认隐藏，非 0 时显示 MM:SS）
+  const shiftEl = document.createElement('div');
+  shiftEl.className = 'jf-ball-shift';
+  shiftEl.style.position = 'relative';
+  shiftEl.style.zIndex = '1';
+  shiftEl.style.fontSize = '10px';
+  shiftEl.style.fontWeight = '600';
+  shiftEl.style.marginTop = '1px';
+  shiftEl.style.opacity = '0.92';
+  shiftEl.style.textShadow = '0 1px 2px rgba(0,0,0,.35)';
+  shiftEl.style.color = 'rgba(255,255,255,.95)';
+  shiftEl.style.display = 'none';
+  shiftEl.textContent = '';
+  el.appendChild(shiftEl);
     el._bgWatermark = bg;
     return el;
   }
@@ -146,11 +161,59 @@ export class CommentBallManager {
         _driftFx: 0, _driftFy: 0,
         _driftTargetFx: Math.cos(_driftAng) * _driftMag,
         _driftTargetFy: Math.sin(_driftAng) * _driftMag,
-        _driftNext: performance.now() + (150 + Math.random() * 200)
+        _driftNext: performance.now() + (150 + Math.random() * 200),
+        // 时间偏移（毫秒）
+        shift: Number(s?.shift ?? s?.Shift ?? 0) || 0
       };
       this._attachDrag(ball);
+      // 初始化 shift 标签
+      try { this._setBallShiftLabel(ball); } catch (_) { }
       return ball;
     });
+  }
+
+  // 将毫秒格式化为 +/-MM:SS（分钟可超 99）
+  _formatMsToMMSS(ms) {
+    try {
+      const isNeg = Number(ms) < 0;
+      const absMs = Math.abs(Number(ms) || 0);
+      const totalSec = Math.floor(absMs / 1000);
+      const mm = Math.floor(totalSec / 60);
+      const ss = totalSec % 60;
+      const txt = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+      return isNeg ? `-${txt}` : txt;
+    } catch (_) { return '00:00'; }
+  }
+
+  // 根据 ball.shift 更新小球上的 shift 显示
+  _setBallShiftLabel(ball) {
+    try {
+      const el = ball?.el;
+      if (!el) return;
+      let lab = el.querySelector?.('.jf-ball-shift');
+      if (!lab) {
+        // 兼容旧元素：动态补齐
+        lab = document.createElement('div');
+        lab.className = 'jf-ball-shift';
+        lab.style.position = 'relative';
+        lab.style.zIndex = '1';
+        lab.style.fontSize = '10px';
+        lab.style.fontWeight = '600';
+        lab.style.marginTop = '1px';
+        lab.style.opacity = '0.92';
+        lab.style.textShadow = '0 1px 2px rgba(0,0,0,.35)';
+        lab.style.color = 'rgba(255,255,255,.95)';
+        el.appendChild(lab);
+      }
+      const v = Number(ball?.shift || 0) || 0;
+      if (v === 0) {
+        lab.textContent = '';
+        lab.style.display = 'none';
+      } else {
+        lab.textContent = this._formatMsToMMSS(v);
+        lab.style.display = '';
+      }
+    } catch (_) { }
   }
 
   _attachDrag(ball) {
@@ -837,6 +900,10 @@ export class CommentBallManager {
           const oldCount = b.count;
           b.count = info.raw.count;
       b.type = info.raw.type;
+          // 同步 shift（毫秒）
+          try { b.shift = Number(info?.raw?.shift ?? info?.raw?.Shift ?? b.shift ?? 0) || 0; } catch (_) { }
+          // 更新 shift 标签
+          try { this._setBallShiftLabel(b); } catch (_) { }
           // 半径调整
             const r = minR + (max > 0 ? (maxR - minR) * (b.count / max) : 0);
             const changed = Math.abs(r - b.r) > 0.5;
@@ -878,8 +945,9 @@ export class CommentBallManager {
           this._boxEl.appendChild(el);
           let x = r + Math.random() * (W - 2 * r);
           let y = r + Math.random() * (H - 2 * r);
-          const ball = { el, name: s.name, type: s.type, count: s.count, x, y, vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0 };
+          const ball = { el, name: s.name, type: s.type, count: s.count, x, y, vx: 0, vy: 0, r, mass: r * r, dragging: false, _px: 0, _py: 0, _pt: 0, shift: Number(s?.shift ?? s?.Shift ?? 0) || 0 };
           this._attachDrag(ball);
+          try { this._setBallShiftLabel(ball); } catch (_) { }
           this._balls.push(ball);
         }
       }

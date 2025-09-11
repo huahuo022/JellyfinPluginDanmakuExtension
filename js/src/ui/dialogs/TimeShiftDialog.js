@@ -434,23 +434,12 @@ export class TimeShiftDialog {
 
   async _loadCurrentShift(ball, input) {
     try {
-      const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
-      const itemId = g.getMediaId?.();
-      if (itemId && typeof ApiClient !== 'undefined' && ApiClient.getUrl) {
-        const url = ApiClient.getUrl(`danmaku/source_shift?item_id=${encodeURIComponent(itemId)}`);
-        const response = await ApiClient.ajax({
-          type: 'GET',
-          url,
-          dataType: 'json'
-        });
-        
-        if (Array.isArray(response)) {
-          const existingShift = response.find(item => item.SourceName === ball.name);
-          if (existingShift && existingShift.Shift !== 0) {
-            input.value = this._msToTimeFormat(existingShift.Shift);
-            try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-          }
-        }
+      // 直接读取小球属性中的 shift（毫秒），不再请求后端
+      const raw = (ball && (ball.shift ?? ball.Shift)) ?? 0;
+      const shiftMs = Number(raw) || 0;
+      if (shiftMs !== 0) {
+        input.value = this._msToTimeFormat(shiftMs);
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
       }
     } catch (e) {
       this.logger?.warn?.('[TimeShiftDialog] 获取时间偏移失败', e);
@@ -520,12 +509,45 @@ export class TimeShiftDialog {
           dataType: 'json'
         });
         
-        this.logger?.info?.('[TimeShiftDialog] 时间偏移设置成功', { 
+  // 成功日志
+  this.logger?.info?.('[TimeShiftDialog] 时间偏移设置成功', { 
           source: ball.name, 
           shift: shiftValue,
           displayValue: newValue,
           triggerSource: source
         });
+  // 同步更新小球上的 shift（毫秒），便于下次打开直接读取
+        try { 
+          if (ball) {
+            ball.shift = Number(shiftValue) || 0; 
+            // 若存在小球渲染工具，尝试刷新标签
+            const el = ball.el;
+            if (el) {
+              let lab = el.querySelector?.('.jf-ball-shift');
+              if (!lab) {
+                lab = document.createElement('div');
+                lab.className = 'jf-ball-shift';
+                lab.style.position = 'relative';
+                lab.style.zIndex = '1';
+                lab.style.fontSize = '10px';
+                lab.style.fontWeight = '600';
+                lab.style.marginTop = '1px';
+                lab.style.opacity = '0.92';
+                lab.style.textShadow = '0 1px 2px rgba(0,0,0,.35)';
+                lab.style.color = 'rgba(255,255,255,.95)';
+                el.appendChild(lab);
+              }
+              const v = Number(ball.shift || 0) || 0;
+              if (v === 0) { lab.textContent = ''; lab.style.display = 'none'; }
+              else { 
+                const isNeg = v < 0; const absMs = Math.abs(v); const totalSec = Math.floor(absMs/1000); const mm = Math.floor(totalSec/60); const ss = totalSec%60; 
+                const txt = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`; 
+                lab.textContent = isNeg ? `-${txt}` : txt; 
+                lab.style.display = ''; 
+              }
+            }
+          }
+        } catch (_) {}
         
         // 触发自动保存
         try { 

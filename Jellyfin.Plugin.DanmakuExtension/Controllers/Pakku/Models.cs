@@ -132,6 +132,7 @@ public partial class Pakku
         public string type { get; set; } = string.Empty;   // 预留（可与 ext_source 的类型对应）
         public string source { get; set; } = string.Empty; // 预留（可与 ext_source 的路径/URL 对应）
         public bool enable { get; set; } = true;           // 预留（可与 ext_source 的启用状态对应）
+        public int shift { get; set; } = 0;                // 新增：来源级时间偏移（毫秒），默认 0
     }
 
 
