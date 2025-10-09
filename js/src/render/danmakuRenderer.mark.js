@@ -89,9 +89,51 @@ export function updateMarkSuffix(stage, cmt, ct, createCommentCanvas) {
         : !!style.strokeStyle * 1;
       var fsConf = (stage && stage._fontSize) ? stage._fontSize : { root: 16, container: 16 };
 
-      var badgeColor = '#3498db';
-      if (show > 30) badgeColor = '#e74c3c';
-      else if (show > 10) badgeColor = '#e67e22';
+      // 可扩展的颜色工具与色标配置
+      function hexToRgbLocal(hex) {
+        var m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 };
+      }
+      function rgbToHexLocal(r, g, b) {
+        function toHex(v) { var x = Math.max(0, Math.min(255, Math.round(v))); var s = x.toString(16); return s.length === 1 ? '0' + s : s; }
+        return '#' + toHex(r) + toHex(g) + toHex(b);
+      }
+      function lerpLocal(a, b, t) { return a + (b - a) * t; }
+      function lerpColor(aHex, bHex, t) {
+        var a = hexToRgbLocal(aHex), b = hexToRgbLocal(bHex);
+        return rgbToHexLocal(
+          lerpLocal(a.r, b.r, t),
+          lerpLocal(a.g, b.g, t),
+          lerpLocal(a.b, b.b, t)
+        );
+      }
+      // 颜色停靠点：value 为 show 值，color 为十六进制颜色
+      // 只需改这里即可扩展更多节点
+      var BADGE_COLOR_STOPS = [
+        { value: 2,  color: '#3498db' }, // 蓝
+        { value: 5,  color: '#72cc2e' }, // 绿
+        { value: 10, color: '#e67e22' }, // 橙
+        { value: 30, color: '#e74c3c' }, // 红（封顶）
+      ];
+      function getBadgeColorByStops(val) {
+        if (!Array.isArray(BADGE_COLOR_STOPS) || BADGE_COLOR_STOPS.length === 0) return '#ffffff';
+        // 边界：小于最小值/大于最大值直接返回端点色
+        if (val <= BADGE_COLOR_STOPS[0].value) return BADGE_COLOR_STOPS[0].color;
+        var last = BADGE_COLOR_STOPS[BADGE_COLOR_STOPS.length - 1];
+        if (val >= last.value) return last.color;
+        // 在相邻停靠点之间线性插值
+        for (var i = 1; i < BADGE_COLOR_STOPS.length; i++) {
+          var left = BADGE_COLOR_STOPS[i - 1];
+          var right = BADGE_COLOR_STOPS[i];
+          if (val <= right.value) {
+            var span = Math.max(1e-6, right.value - left.value);
+            var t = (val - left.value) / span;
+            return lerpColor(left.color, right.color, t);
+          }
+        }
+        return last.color;
+      }
+      var badgeColor = getBadgeColorByStops(show);
 
       cmt.render = function () {
         var cvs = document.createElement('canvas');

@@ -259,7 +259,7 @@ public partial class DanmakuService
                 double timeMs = 0; int mode = 1; int colorInt = 0xFFFFFF; string uid = string.Empty; int fontSize = 0;
                 try { if (parts.Length > 0) { double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t); timeMs = t * 1000.0; } } catch { }
                 try { if (parts.Length > 1) { int.TryParse(parts[1], out mode); } } catch { }
-                try { if (parts.Length > 2) { int.TryParse(parts[2], out fontSize); } } catch { }
+                // try { if (parts.Length > 2) { int.TryParse(parts[2], out fontSize); } } catch { }
                 try { if (parts.Length > 3) { int.TryParse(parts[3], out colorInt); } } catch { }
                 try { if (parts.Length > 6) { uid = parts[6]; } } catch { }
 
@@ -284,7 +284,6 @@ public partial class DanmakuService
         return list;
     }
 
-    // 为 Bilibili 请求添加常见头，减少 412
     private static void AddBiliHeaders(HttpRequestMessage req, string referer, bool isXml = false)
     {
         var refToUse = string.IsNullOrWhiteSpace(referer) ? "https://www.bilibili.com" : referer;
