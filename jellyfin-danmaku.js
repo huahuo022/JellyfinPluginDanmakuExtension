@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-10-09T08:23:44.549Z
+ * 构建时间: 2025-10-09T08:46:49.018Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -10589,19 +10589,14 @@
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // 设置1px黑色轮廓
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
             ctx.fillStyle = '#fff';
-            var innerFontPx = Math.max(8, Math.floor(d * 0.6));
+            var fontSizeRatio = show >= 10 ? 0.6 : 0.7;
+            var innerFontPx = Math.max(8, Math.floor(d * fontSizeRatio));
             var fam = 'sans-serif';
             try { var m = s.font.match(/\b\d+(?:\.\d+)?px\s+(.+)$/); if (m) fam = m[1]; } catch (_) { }
             ctx.font = innerFontPx + 'px ' + fam;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            // 先绘制文字轮廓
-            ctx.strokeText(show, cx, cy);
-            // 再填充文字
             ctx.fillText(show, cx, cy);
 
             ctx.textAlign = undefined;

@@ -177,7 +177,8 @@ export function updateMarkSuffix(stage, cmt, ct, createCommentCanvas) {
         ctx.fill();
 
         ctx.fillStyle = '#fff';
-        var innerFontPx = Math.max(8, Math.floor(d * 0.6));
+        var fontSizeRatio = show >= 10 ? 0.6 : 0.7;
+        var innerFontPx = Math.max(8, Math.floor(d * fontSizeRatio));
         var fam = 'sans-serif';
         try { var m = s.font.match(/\b\d+(?:\.\d+)?px\s+(.+)$/); if (m) fam = m[1]; } catch (_) { }
         ctx.font = innerFontPx + 'px ' + fam;
