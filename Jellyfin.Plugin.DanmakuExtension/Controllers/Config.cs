@@ -32,7 +32,7 @@ public class DanmakuConfig
     public bool TrimSpace { get; set; } = true;
     public bool TrimWidth { get; set; } = true;
     public string HeatmapStyle { get; set; } =
-        "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}";
+        "{\"lineWidth\":1,\"lineColor\":\"rgba(103, 120, 199, 1)\",\"gradientColorStart\":\"rgba(106, 119, 193, 0.27)\",\"gradientColorEnd\":\"rgba(106, 119, 193, 0.38)\"}";
     public string MarkStyle { get; set; } = "dynamic";
     public int MarkThreshold { get; set; } = 1;
     public bool ModeElevation { get; set; } = true;

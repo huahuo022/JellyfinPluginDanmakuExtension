@@ -38,7 +38,7 @@ export class DanmakuSettings {
             trim_ending:        { def: true,       type: 'boolean' },
             trim_space:         { def: true,       type: 'boolean' },
             trim_width:         { def: true,       type: 'boolean' },
-            heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}",     type: 'string'  },
+            heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"rgba(103, 120, 199, 1)\",\"gradientColorStart\":\"rgba(106, 119, 193, 0.27)\",\"gradientColorEnd\":\"rgba(106, 119, 193, 0.38)\"}",     type: 'string'  },
             mark_style:         { def: "dynamic",  type: 'string'  },
             mark_threshold:     { def: 1,          type: 'number'  },
             mode_elevation:     { def: true,       type: 'boolean' },

@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-10-09T08:46:49.018Z
+ * 构建时间: 2025-10-17T07:33:28.882Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -54,7 +54,7 @@
                 trim_ending:        { def: true,       type: 'boolean' },
                 trim_space:         { def: true,       type: 'boolean' },
                 trim_width:         { def: true,       type: 'boolean' },
-                heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"#3498db\",\"gradientColorStart\":\"rgba(52, 152, 219, 0.08)\",\"gradientColorEnd\":\"rgba(52, 152, 219, 0.25)\"}",     type: 'string'  },
+                heatmap_style:      { def: "{\"lineWidth\":1,\"lineColor\":\"rgba(103, 120, 199, 1)\",\"gradientColorStart\":\"rgba(106, 119, 193, 0.27)\",\"gradientColorEnd\":\"rgba(106, 119, 193, 0.38)\"}",     type: 'string'  },
                 mark_style:         { def: "dynamic",  type: 'string'  },
                 mark_threshold:     { def: 1,          type: 'number'  },
                 mode_elevation:     { def: true,       type: 'boolean' },
@@ -5248,14 +5248,14 @@
           const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
           const s = g.danmakuSettings;
           const raw = s?.get?.('heatmap_style');
-          const def = { lineWidth: 1, lineColor: '#3498db', gradientColorStart: 'rgba(52, 152, 219, 0.08)', gradientColorEnd: 'rgba(52, 152, 219, 0.25)' };
+          const def = { lineWidth: 1, lineColor: 'rgba(103, 120, 199, 1)', gradientColorStart: 'rgba(106, 119, 193, 0.27)', gradientColorEnd: 'rgba(106, 119, 193, 0.38)' };
           if (!raw || typeof raw !== 'string') return def;
           try {
             const obj = JSON.parse(raw);
             return { ...def, ...(obj || {}) };
           } catch (_) { return def; }
         } catch (_) {
-          return { lineWidth: 1, lineColor: '#3498db', gradientColorStart: 'rgba(52, 152, 219, 0.08)', gradientColorEnd: 'rgba(52, 152, 219, 0.25)' };
+          return { lineWidth: 1, lineColor: 'rgba(103, 120, 199, 1)', gradientColorStart: 'rgba(106, 119, 193, 0.27)', gradientColorEnd: 'rgba(106, 119, 193, 0.38)' };
         }
       }
 
@@ -5352,7 +5352,7 @@
         color.type = 'color';
         // 尝试解析为十六进制；若为 rgba 则转换为 hex（忽略 alpha）
         const toHex = (col) => {
-          if (typeof col !== 'string' || !col) return '#3498db';
+          if (typeof col !== 'string' || !col) return 'rgba(103, 120, 199, 1)';
           const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
           if (hexMatch) return '#' + hexMatch[1].toLowerCase();
           const rgba = col.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
@@ -5363,14 +5363,14 @@
             const hex = (n) => n.toString(16).padStart(2, '0');
             return '#' + hex(r) + hex(g) + hex(b);
           }
-          return '#3498db';
+          return 'rgba(103, 120, 199, 1)';
         };
         color.value = toHex(style.lineColor);
         color.className = 'danmaku-setting-input';
         color.style.width = '44px'; color.style.padding = '0'; color.style.height = '24px';
 
         const text = document.createElement('input');
-        text.type = 'text'; text.value = style.lineColor || '#3498db';
+        text.type = 'text'; text.value = style.lineColor || 'rgba(103, 120, 199, 1)';
         text.className = 'danmaku-setting-input';
         text.style.flex = '1 1 auto';
 
@@ -5411,7 +5411,7 @@
         wrap.style.gap = '8px';
         wrap.style.alignItems = 'center';
 
-        const toHex = (col, fallback = '#3498db') => {
+        const toHex = (col, fallback = 'rgba(103, 120, 199, 1)') => {
           if (typeof col !== 'string' || !col) return fallback;
           const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
           if (hexMatch) return '#' + hexMatch[1].toLowerCase();
@@ -5445,11 +5445,11 @@
         const startAlpha = getAlpha(style.gradientColorStart, 0.08);
         const endAlpha = getAlpha(style.gradientColorEnd, 0.25);
 
-        const startColor = document.createElement('input'); startColor.type = 'color'; startColor.className = 'danmaku-setting-input'; startColor.style.width = '44px'; startColor.style.height = '24px'; startColor.style.padding = '0'; startColor.value = toHex(style.gradientColorStart, '#3498db');
-        const startText = document.createElement('input'); startText.type = 'text'; startText.className = 'danmaku-setting-input'; startText.style.width = '100%'; startText.value = style.gradientColorStart || 'rgba(52, 152, 219, 0.08)';
+        const startColor = document.createElement('input'); startColor.type = 'color'; startColor.className = 'danmaku-setting-input'; startColor.style.width = '44px'; startColor.style.height = '24px'; startColor.style.padding = '0'; startColor.value = toHex(style.gradientColorStart, 'rgba(103, 120, 199, 1)');
+        const startText = document.createElement('input'); startText.type = 'text'; startText.className = 'danmaku-setting-input'; startText.style.width = '100%'; startText.value = style.gradientColorStart || 'rgba(106, 119, 193, 0.27)';
 
-        const endColor = document.createElement('input'); endColor.type = 'color'; endColor.className = 'danmaku-setting-input'; endColor.style.width = '44px'; endColor.style.height = '24px'; endColor.style.padding = '0'; endColor.value = toHex(style.gradientColorEnd, '#3498db');
-        const endText = document.createElement('input'); endText.type = 'text'; endText.className = 'danmaku-setting-input'; endText.style.width = '100%'; endText.value = style.gradientColorEnd || 'rgba(52, 152, 219, 0.25)';
+        const endColor = document.createElement('input'); endColor.type = 'color'; endColor.className = 'danmaku-setting-input'; endColor.style.width = '44px'; endColor.style.height = '24px'; endColor.style.padding = '0'; endColor.value = toHex(style.gradientColorEnd, 'rgba(103, 120, 199, 1)');
+        const endText = document.createElement('input'); endText.type = 'text'; endText.className = 'danmaku-setting-input'; endText.style.width = '100%'; endText.value = style.gradientColorEnd || 'rgba(106, 119, 193, 0.38)';
 
         const applyStart = (srcVal, src) => {
           let val = srcVal || '';
@@ -5502,7 +5502,7 @@
       wrap.style.gap = '12px';
       wrap.style.alignItems = 'center';
 
-        const toHex = (col, fallback = '#3498db') => {
+        const toHex = (col, fallback = 'rgba(103, 120, 199, 1)') => {
           if (typeof col !== 'string' || !col) return fallback;
           const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
           if (hexMatch) return '#' + hexMatch[1].toLowerCase();
@@ -5549,7 +5549,7 @@
 
         const updateLineBlock = () => {
           const st = this._getStyle();
-          const col = st.lineColor || '#3498db';
+          const col = st.lineColor || 'rgba(103, 120, 199, 1)';
           lineBlock.style.background = col; // 支持 hex 或 rgba
         };
         updateLineBlock();
@@ -5567,7 +5567,7 @@
         linePickerOverlay.style.padding = '0';
         linePickerOverlay.style.margin = '0';
         linePickerOverlay.style.zIndex = '1';
-        linePickerOverlay.value = toHex(style.lineColor, '#3498db');
+        linePickerOverlay.value = toHex(style.lineColor, 'rgba(103, 120, 199, 1)');
         linePickerOverlay.addEventListener('input', () => {
           const hex = linePickerOverlay.value;
           // 保留当前 alpha
@@ -5609,7 +5609,7 @@
         lineAlpha.addEventListener('input', () => {
           const a = Math.max(0, Math.min(1, parseFloat(lineAlpha.value)));
           const st = this._getStyle();
-          const hex = toHex(st.lineColor, toHex(style.lineColor, '#3498db'));
+          const hex = toHex(st.lineColor, toHex(style.lineColor, 'rgba(103, 120, 199, 1)'));
           const rgba = makeRgba(hex, a);
           this._setStyle({ lineColor: rgba });
           updateLineBlock();
@@ -5644,14 +5644,14 @@
 
         const updateGradientBlock = () => {
           const st = this._getStyle();
-          const start = st.gradientColorStart || 'rgba(52, 152, 219, 0.08)';
-          const end = st.gradientColorEnd || 'rgba(52, 152, 219, 0.25)';
+          const start = st.gradientColorStart || 'rgba(106, 119, 193, 0.27)';
+          const end = st.gradientColorEnd || 'rgba(106, 119, 193, 0.38)';
           // 结束颜色在上方，开始颜色在下方
           gradientBlock.style.background = `linear-gradient(to bottom, ${end} 0%, ${start} 100%)`;
         };
         updateGradientBlock();
 
-        const toHexSafe = (col, fb = '#3498db') => {
+        const toHexSafe = (col, fb = 'rgba(103, 120, 199, 1)') => {
           if (typeof col !== 'string' || !col) return fb;
           const m = col.match(/^#([0-9a-f]{6})$/i);
           if (m) return '#' + m[1].toLowerCase();
@@ -5691,7 +5691,7 @@
         endPickerOverlay.style.padding = '0';
         endPickerOverlay.style.margin = '0';
         endPickerOverlay.style.zIndex = '1';
-        endPickerOverlay.value = toHexSafe(style.gradientColorEnd, '#3498db');
+        endPickerOverlay.value = toHexSafe(style.gradientColorEnd, 'rgba(103, 120, 199, 1)');
         endPickerOverlay.addEventListener('input', () => {
           const hex = endPickerOverlay.value;
           const currentA = getAlpha(this._getStyle().gradientColorEnd, 0.25);
@@ -5715,7 +5715,7 @@
         startPickerOverlay.style.padding = '0';
         startPickerOverlay.style.margin = '0';
         startPickerOverlay.style.zIndex = '1';
-        startPickerOverlay.value = toHexSafe(style.gradientColorStart, '#3498db');
+        startPickerOverlay.value = toHexSafe(style.gradientColorStart, 'rgba(103, 120, 199, 1)');
         startPickerOverlay.addEventListener('input', () => {
           const hex = startPickerOverlay.value;
           const currentA = getAlpha(this._getStyle().gradientColorStart, 0.08);
@@ -5758,7 +5758,7 @@
         gradAlphaTop.addEventListener('input', () => {
           const a = Math.max(0, Math.min(1, parseFloat(gradAlphaTop.value)));
           const st = this._getStyle();
-          const hex = toHexSafe(st.gradientColorEnd, '#3498db');
+          const hex = toHexSafe(st.gradientColorEnd, 'rgba(103, 120, 199, 1)');
           const rgba = makeRgba(hex, a);
           this._setStyle({ gradientColorEnd: rgba });
           updateGradientBlock();
@@ -5793,7 +5793,7 @@
         gradAlphaBottom.addEventListener('input', () => {
           const a = Math.max(0, Math.min(1, parseFloat(gradAlphaBottom.value)));
           const st = this._getStyle();
-          const hex = toHexSafe(st.gradientColorStart, '#3498db');
+          const hex = toHexSafe(st.gradientColorStart, 'rgba(103, 120, 199, 1)');
           const rgba = makeRgba(hex, a);
           this._setStyle({ gradientColorStart: rgba });
           updateGradientBlock();
@@ -8744,9 +8744,9 @@
         * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
         * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
         * @param {number} options.lineWidth - 线条宽度，默认1
-        * @param {string} options.lineColor - 线条颜色，默认 '#3498db'
-        * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(52, 152, 219, 0.08)'
-        * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(52, 152, 219, 0.25)'
+        * @param {string} options.lineColor - 线条颜色，默认 'rgba(103, 120, 199, 1)'
+        * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(106, 119, 193, 0.27)'
+        * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(106, 119, 193, 0.38)'
         * @param {string} options.canvasId - 生成的Canvas元素ID，默认 'danmaku-heatmap-canvas'
         */
         constructor(options = {}) {
@@ -8760,9 +8760,9 @@
                 // 线条样式配置
                 lineWidth: options.lineWidth || 1,
                 // 直接使用传入颜色（无预设），提供默认值
-                lineColor: options.lineColor ?? '#3498db',
-                gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
-                gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
+                lineColor: options.lineColor ?? 'rgba(103, 120, 199, 1)',
+                gradientColorStart: options.gradientColorStart ?? 'rgba(106, 119, 193, 0.27)',
+                gradientColorEnd: options.gradientColorEnd ?? 'rgba(106, 119, 193, 0.38)',
                 canvasId: options.canvasId || 'danmaku-heatmap-canvas',
 
                 ...options
@@ -10523,7 +10523,7 @@
           // 颜色停靠点：value 为 show 值，color 为十六进制颜色
           // 只需改这里即可扩展更多节点
           var BADGE_COLOR_STOPS = [
-            { value: 2,  color: '#3498db' }, // 蓝
+            { value: 2,  color: 'rgba(103, 120, 199, 1)' }, // 蓝
             { value: 5,  color: '#72cc2e' }, // 绿
             { value: 10, color: '#e67e22' }, // 橙
             { value: 30, color: '#e74c3c' }, // 红（封顶）

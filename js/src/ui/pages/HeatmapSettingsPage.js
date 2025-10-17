@@ -12,14 +12,14 @@ export class HeatmapSettingsPage {
       const g = window.__jfDanmakuGlobal__ = window.__jfDanmakuGlobal__ || {};
       const s = g.danmakuSettings;
       const raw = s?.get?.('heatmap_style');
-      const def = { lineWidth: 1, lineColor: '#3498db', gradientColorStart: 'rgba(52, 152, 219, 0.08)', gradientColorEnd: 'rgba(52, 152, 219, 0.25)' };
+      const def = { lineWidth: 1, lineColor: 'rgba(103, 120, 199, 1)', gradientColorStart: 'rgba(106, 119, 193, 0.27)', gradientColorEnd: 'rgba(106, 119, 193, 0.38)' };
       if (!raw || typeof raw !== 'string') return def;
       try {
         const obj = JSON.parse(raw);
         return { ...def, ...(obj || {}) };
       } catch (_) { return def; }
     } catch (_) {
-      return { lineWidth: 1, lineColor: '#3498db', gradientColorStart: 'rgba(52, 152, 219, 0.08)', gradientColorEnd: 'rgba(52, 152, 219, 0.25)' };
+      return { lineWidth: 1, lineColor: 'rgba(103, 120, 199, 1)', gradientColorStart: 'rgba(106, 119, 193, 0.27)', gradientColorEnd: 'rgba(106, 119, 193, 0.38)' };
     }
   }
 
@@ -116,7 +116,7 @@ export class HeatmapSettingsPage {
     color.type = 'color';
     // 尝试解析为十六进制；若为 rgba 则转换为 hex（忽略 alpha）
     const toHex = (col) => {
-      if (typeof col !== 'string' || !col) return '#3498db';
+      if (typeof col !== 'string' || !col) return 'rgba(103, 120, 199, 1)';
       const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
       if (hexMatch) return '#' + hexMatch[1].toLowerCase();
       const rgba = col.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
@@ -127,14 +127,14 @@ export class HeatmapSettingsPage {
         const hex = (n) => n.toString(16).padStart(2, '0');
         return '#' + hex(r) + hex(g) + hex(b);
       }
-      return '#3498db';
+      return 'rgba(103, 120, 199, 1)';
     };
     color.value = toHex(style.lineColor);
     color.className = 'danmaku-setting-input';
     color.style.width = '44px'; color.style.padding = '0'; color.style.height = '24px';
 
     const text = document.createElement('input');
-    text.type = 'text'; text.value = style.lineColor || '#3498db';
+    text.type = 'text'; text.value = style.lineColor || 'rgba(103, 120, 199, 1)';
     text.className = 'danmaku-setting-input';
     text.style.flex = '1 1 auto';
 
@@ -175,7 +175,7 @@ export class HeatmapSettingsPage {
     wrap.style.gap = '8px';
     wrap.style.alignItems = 'center';
 
-    const toHex = (col, fallback = '#3498db') => {
+    const toHex = (col, fallback = 'rgba(103, 120, 199, 1)') => {
       if (typeof col !== 'string' || !col) return fallback;
       const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
       if (hexMatch) return '#' + hexMatch[1].toLowerCase();
@@ -209,11 +209,11 @@ export class HeatmapSettingsPage {
     const startAlpha = getAlpha(style.gradientColorStart, 0.08);
     const endAlpha = getAlpha(style.gradientColorEnd, 0.25);
 
-    const startColor = document.createElement('input'); startColor.type = 'color'; startColor.className = 'danmaku-setting-input'; startColor.style.width = '44px'; startColor.style.height = '24px'; startColor.style.padding = '0'; startColor.value = toHex(style.gradientColorStart, '#3498db');
-    const startText = document.createElement('input'); startText.type = 'text'; startText.className = 'danmaku-setting-input'; startText.style.width = '100%'; startText.value = style.gradientColorStart || 'rgba(52, 152, 219, 0.08)';
+    const startColor = document.createElement('input'); startColor.type = 'color'; startColor.className = 'danmaku-setting-input'; startColor.style.width = '44px'; startColor.style.height = '24px'; startColor.style.padding = '0'; startColor.value = toHex(style.gradientColorStart, 'rgba(103, 120, 199, 1)');
+    const startText = document.createElement('input'); startText.type = 'text'; startText.className = 'danmaku-setting-input'; startText.style.width = '100%'; startText.value = style.gradientColorStart || 'rgba(106, 119, 193, 0.27)';
 
-    const endColor = document.createElement('input'); endColor.type = 'color'; endColor.className = 'danmaku-setting-input'; endColor.style.width = '44px'; endColor.style.height = '24px'; endColor.style.padding = '0'; endColor.value = toHex(style.gradientColorEnd, '#3498db');
-    const endText = document.createElement('input'); endText.type = 'text'; endText.className = 'danmaku-setting-input'; endText.style.width = '100%'; endText.value = style.gradientColorEnd || 'rgba(52, 152, 219, 0.25)';
+    const endColor = document.createElement('input'); endColor.type = 'color'; endColor.className = 'danmaku-setting-input'; endColor.style.width = '44px'; endColor.style.height = '24px'; endColor.style.padding = '0'; endColor.value = toHex(style.gradientColorEnd, 'rgba(103, 120, 199, 1)');
+    const endText = document.createElement('input'); endText.type = 'text'; endText.className = 'danmaku-setting-input'; endText.style.width = '100%'; endText.value = style.gradientColorEnd || 'rgba(106, 119, 193, 0.38)';
 
     const applyStart = (srcVal, src) => {
       let val = srcVal || '';
@@ -266,7 +266,7 @@ export class HeatmapSettingsPage {
   wrap.style.gap = '12px';
   wrap.style.alignItems = 'center';
 
-    const toHex = (col, fallback = '#3498db') => {
+    const toHex = (col, fallback = 'rgba(103, 120, 199, 1)') => {
       if (typeof col !== 'string' || !col) return fallback;
       const hexMatch = col.match(/^#([0-9a-f]{6})$/i);
       if (hexMatch) return '#' + hexMatch[1].toLowerCase();
@@ -313,7 +313,7 @@ export class HeatmapSettingsPage {
 
     const updateLineBlock = () => {
       const st = this._getStyle();
-      const col = st.lineColor || '#3498db';
+      const col = st.lineColor || 'rgba(103, 120, 199, 1)';
       lineBlock.style.background = col; // 支持 hex 或 rgba
     };
     updateLineBlock();
@@ -331,7 +331,7 @@ export class HeatmapSettingsPage {
     linePickerOverlay.style.padding = '0';
     linePickerOverlay.style.margin = '0';
     linePickerOverlay.style.zIndex = '1';
-    linePickerOverlay.value = toHex(style.lineColor, '#3498db');
+    linePickerOverlay.value = toHex(style.lineColor, 'rgba(103, 120, 199, 1)');
     linePickerOverlay.addEventListener('input', () => {
       const hex = linePickerOverlay.value;
       // 保留当前 alpha
@@ -373,7 +373,7 @@ export class HeatmapSettingsPage {
     lineAlpha.addEventListener('input', () => {
       const a = Math.max(0, Math.min(1, parseFloat(lineAlpha.value)));
       const st = this._getStyle();
-      const hex = toHex(st.lineColor, toHex(style.lineColor, '#3498db'));
+      const hex = toHex(st.lineColor, toHex(style.lineColor, 'rgba(103, 120, 199, 1)'));
       const rgba = makeRgba(hex, a);
       this._setStyle({ lineColor: rgba });
       updateLineBlock();
@@ -408,14 +408,14 @@ export class HeatmapSettingsPage {
 
     const updateGradientBlock = () => {
       const st = this._getStyle();
-      const start = st.gradientColorStart || 'rgba(52, 152, 219, 0.08)';
-      const end = st.gradientColorEnd || 'rgba(52, 152, 219, 0.25)';
+      const start = st.gradientColorStart || 'rgba(106, 119, 193, 0.27)';
+      const end = st.gradientColorEnd || 'rgba(106, 119, 193, 0.38)';
       // 结束颜色在上方，开始颜色在下方
       gradientBlock.style.background = `linear-gradient(to bottom, ${end} 0%, ${start} 100%)`;
     };
     updateGradientBlock();
 
-    const toHexSafe = (col, fb = '#3498db') => {
+    const toHexSafe = (col, fb = 'rgba(103, 120, 199, 1)') => {
       if (typeof col !== 'string' || !col) return fb;
       const m = col.match(/^#([0-9a-f]{6})$/i);
       if (m) return '#' + m[1].toLowerCase();
@@ -455,7 +455,7 @@ export class HeatmapSettingsPage {
     endPickerOverlay.style.padding = '0';
     endPickerOverlay.style.margin = '0';
     endPickerOverlay.style.zIndex = '1';
-    endPickerOverlay.value = toHexSafe(style.gradientColorEnd, '#3498db');
+    endPickerOverlay.value = toHexSafe(style.gradientColorEnd, 'rgba(103, 120, 199, 1)');
     endPickerOverlay.addEventListener('input', () => {
       const hex = endPickerOverlay.value;
       const currentA = getAlpha(this._getStyle().gradientColorEnd, 0.25);
@@ -479,7 +479,7 @@ export class HeatmapSettingsPage {
     startPickerOverlay.style.padding = '0';
     startPickerOverlay.style.margin = '0';
     startPickerOverlay.style.zIndex = '1';
-    startPickerOverlay.value = toHexSafe(style.gradientColorStart, '#3498db');
+    startPickerOverlay.value = toHexSafe(style.gradientColorStart, 'rgba(103, 120, 199, 1)');
     startPickerOverlay.addEventListener('input', () => {
       const hex = startPickerOverlay.value;
       const currentA = getAlpha(this._getStyle().gradientColorStart, 0.08);
@@ -522,7 +522,7 @@ export class HeatmapSettingsPage {
     gradAlphaTop.addEventListener('input', () => {
       const a = Math.max(0, Math.min(1, parseFloat(gradAlphaTop.value)));
       const st = this._getStyle();
-      const hex = toHexSafe(st.gradientColorEnd, '#3498db');
+      const hex = toHexSafe(st.gradientColorEnd, 'rgba(103, 120, 199, 1)');
       const rgba = makeRgba(hex, a);
       this._setStyle({ gradientColorEnd: rgba });
       updateGradientBlock();
@@ -557,7 +557,7 @@ export class HeatmapSettingsPage {
     gradAlphaBottom.addEventListener('input', () => {
       const a = Math.max(0, Math.min(1, parseFloat(gradAlphaBottom.value)));
       const st = this._getStyle();
-      const hex = toHexSafe(st.gradientColorStart, '#3498db');
+      const hex = toHexSafe(st.gradientColorStart, 'rgba(103, 120, 199, 1)');
       const rgba = makeRgba(hex, a);
       this._setStyle({ gradientColorStart: rgba });
       updateGradientBlock();

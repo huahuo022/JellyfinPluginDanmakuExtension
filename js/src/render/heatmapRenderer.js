@@ -15,9 +15,9 @@ export class DanmakuHeatmapRenderer {
     * @param {number} options.resizeThreshold - 重新渲染的宽度变化阈值，默认50像素
     * @param {number} options.resizeDebounceDelay - 宽度变化防抖延迟时间（毫秒），默认300
     * @param {number} options.lineWidth - 线条宽度，默认1
-    * @param {string} options.lineColor - 线条颜色，默认 '#3498db'
-    * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(52, 152, 219, 0.08)'
-    * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(52, 152, 219, 0.25)'
+    * @param {string} options.lineColor - 线条颜色，默认 'rgba(103, 120, 199, 1)'
+    * @param {string} options.gradientColorStart - 渐变起始色，默认 'rgba(106, 119, 193, 0.27)'
+    * @param {string} options.gradientColorEnd - 渐变结束色，默认 'rgba(106, 119, 193, 0.38)'
     * @param {string} options.canvasId - 生成的Canvas元素ID，默认 'danmaku-heatmap-canvas'
     */
     constructor(options = {}) {
@@ -31,9 +31,9 @@ export class DanmakuHeatmapRenderer {
             // 线条样式配置
             lineWidth: options.lineWidth || 1,
             // 直接使用传入颜色（无预设），提供默认值
-            lineColor: options.lineColor ?? '#3498db',
-            gradientColorStart: options.gradientColorStart ?? 'rgba(52, 152, 219, 0.08)',
-            gradientColorEnd: options.gradientColorEnd ?? 'rgba(52, 152, 219, 0.25)',
+            lineColor: options.lineColor ?? 'rgba(103, 120, 199, 1)',
+            gradientColorStart: options.gradientColorStart ?? 'rgba(106, 119, 193, 0.27)',
+            gradientColorEnd: options.gradientColorEnd ?? 'rgba(106, 119, 193, 0.38)',
             canvasId: options.canvasId || 'danmaku-heatmap-canvas',
 
             ...options

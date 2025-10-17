@@ -110,7 +110,7 @@ export function updateMarkSuffix(stage, cmt, ct, createCommentCanvas) {
       // 颜色停靠点：value 为 show 值，color 为十六进制颜色
       // 只需改这里即可扩展更多节点
       var BADGE_COLOR_STOPS = [
-        { value: 2,  color: '#3498db' }, // 蓝
+        { value: 2,  color: 'rgba(103, 120, 199, 1)' }, // 蓝
         { value: 5,  color: '#72cc2e' }, // 绿
         { value: 10, color: '#e67e22' }, // 橙
         { value: 30, color: '#e74c3c' }, // 红（封顶）
