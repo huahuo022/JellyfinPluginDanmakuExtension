@@ -1,8 +1,9 @@
 var BADGE_COLOR_STOPS = [
-    { value: 2, color: 'rgba(103, 167, 199, 1)' }, // 蓝
-    { value: 5, color: '#72cc2e' }, // 绿
-    { value: 10, color: '#e67e22' }, // 橙
-    { value: 30, color: '#e74c3c' }, // 红（封顶）
+    { value: 2, color: '#467eb9' },
+    { value: 7, color: '#7e24a8' },
+    { value: 10, color: '#7a16a2' },
+    { value: 25, color: '#df7416' },
+    { value: 50, color: '#e1230e' }
 ];
 
 /**

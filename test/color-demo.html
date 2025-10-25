@@ -51,6 +51,12 @@
             border-radius: 3px;
         }
         
+        .btn-move {
+            padding: 5px 8px;
+            margin: 0 2px;
+            font-size: 12px;
+        }
+        
         .color-input {
             width: 100px;
         }
@@ -92,23 +98,32 @@
             margin-top: 30px;
         }
         
-        .color-bar {
-            height: 40px;
+        .badge-container {
             display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
             margin: 20px 0;
-            border-radius: 5px;
-            overflow: hidden;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
         }
         
-        .color-segment {
-            flex: 1;
+        .badge-item {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
+        }
+        
+        .badge-canvas {
+            width: 40px;
+            height: 40px;
+        }
+        
+        .badge-value {
+            margin-top: 5px;
             font-size: 12px;
-            color: white;
-            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+            color: #666;
         }
         
         .value-display {
@@ -199,8 +214,8 @@
                 颜色: <span id="currentColor" style="color:#e67e22">#e67e22</span>
             </div>
             
-            <div class="color-bar" id="colorBar">
-                <!-- 颜色条将通过JavaScript动态生成 -->
+            <div class="badge-container" id="badgeContainer">
+                <!-- 徽章将通过JavaScript动态生成 -->
             </div>
             
             <div class="stops-display">
@@ -242,6 +257,8 @@
                 stopItem.innerHTML = `
                     <input type="number" class="value-input" value="${stop.value}" min="1" step="1" onchange="updateStopValue(${index}, this.value)">
                     <input type="color" class="color-input" value="${normalizeColor(stop.color)}" onchange="updateStopColor(${index}, this.value)">
+                    <button class="btn btn-move" onclick="moveStopUp(${index})">↑</button>
+                    <button class="btn btn-move" onclick="moveStopDown(${index})">↓</button>
                     <button class="btn btn-remove" onclick="removeStop(${index})">删除</button>
                 `;
                 container.appendChild(stopItem);
@@ -263,6 +280,9 @@
         // 更新停止点的值
         function updateStopValue(index, value) {
             currentStops[index].value = parseFloat(value);
+            // 按值排序
+            currentStops.sort((a, b) => a.value - b.value);
+            updateBadgeColorStops(currentStops);
             renderColorBar();
             updateStopsList();
         }
@@ -270,6 +290,7 @@
         // 更新停止点的颜色
         function updateStopColor(index, color) {
             currentStops[index].color = color;
+            updateBadgeColorStops(currentStops);
             renderColorBar();
             updateStopsList();
         }
@@ -281,6 +302,27 @@
                 return;
             }
             currentStops.splice(index, 1);
+            updateBadgeColorStops(currentStops);
+            renderStopsForm();
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 向上移动停止点
+        function moveStopUp(index) {
+            if (index <= 0) return; // 已经是第一个
+            [currentStops[index], currentStops[index - 1]] = [currentStops[index - 1], currentStops[index]];
+            updateBadgeColorStops(currentStops);
+            renderStopsForm();
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 向下移动停止点
+        function moveStopDown(index) {
+            if (index >= currentStops.length - 1) return; // 已经是最后一个
+            [currentStops[index], currentStops[index + 1]] = [currentStops[index + 1], currentStops[index]];
+            updateBadgeColorStops(currentStops);
             renderStopsForm();
             renderColorBar();
             updateStopsList();
@@ -290,6 +332,8 @@
         function addStop() {
             currentStops.push({ value: 25, color: '#9b59b6' });
             renderStopsForm();
+            renderColorBar(); // 添加这行来更新徽章显示
+            updateStopsList(); // 添加这行来更新停止点列表和JSON显示
         }
         
         // 更新停止点到全局变量
@@ -316,23 +360,55 @@
             updateStopsList();
         }
         
-        // 渲染颜色条
+        // 渲染徽章
         function renderColorBar() {
-            const colorBar = document.getElementById('colorBar');
-            colorBar.innerHTML = '';
+            const badgeContainer = document.getElementById('badgeContainer');
+            badgeContainer.innerHTML = '';
             
-            // 创建2到50的渐变段
+            // 创建2到50的徽章
             for (let i = 2; i <= 50; i++) {
-                const segment = document.createElement('div');
-                segment.className = 'color-segment';
-                segment.style.backgroundColor = getBadgeColorByStops(i);
+                const badgeItem = document.createElement('div');
+                badgeItem.className = 'badge-item';
                 
-                // 每隔5个值显示一次数字
-                if (i % 5 === 0) {
-                    segment.textContent = i;
-                }
+                // 创建canvas元素
+                const canvas = document.createElement('canvas');
+                canvas.className = 'badge-canvas';
+                canvas.width = 40;
+                canvas.height = 40;
                 
-                colorBar.appendChild(segment);
+                // 获取徽章颜色
+                const badgeColor = getBadgeColorByStops(i);
+                
+                // 绘制圆形徽章
+                const ctx = canvas.getContext('2d');
+                const d = 30; // 直径
+                const r = d / 2; // 半径
+                const cx = canvas.width / 2; // 圆心x
+                const cy = canvas.height / 2; // 圆心y
+                
+                // 绘制背景圆
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fillStyle = badgeColor;
+                ctx.fill();
+                
+                // 绘制数字
+                ctx.fillStyle = '#fff';
+                const fontSizeRatio = i >= 10 ? 0.6 : 0.7;
+                const innerFontPx = Math.max(8, Math.floor(d * fontSizeRatio));
+                ctx.font = `bold ${innerFontPx}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(i, cx, cy);
+                
+                // 添加值显示
+                const valueDisplay = document.createElement('div');
+                valueDisplay.className = 'badge-value';
+                valueDisplay.textContent = i;
+                
+                badgeItem.appendChild(canvas);
+                badgeItem.appendChild(valueDisplay);
+                badgeContainer.appendChild(badgeItem);
             }
         }
         
