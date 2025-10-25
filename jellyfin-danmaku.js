@@ -2,7 +2,7 @@
  * jellyfin-danmaku-extension v1.0.0
  * Jellyfin Web弹幕扩展
  * 
- * 构建时间: 2025-10-25T11:46:24.877Z
+ * 构建时间: 2025-10-25T12:05:00.094Z
  * 
  * 使用方法:
  * 1. 将此文件复制到Jellyfin Web目录
@@ -10523,11 +10523,12 @@
           // 颜色停靠点：value 为 show 值，color 为十六进制颜色
           // 只需改这里即可扩展更多节点
           var BADGE_COLOR_STOPS = [
-            { value: 2,  color: 'rgb(21, 101, 192)' }, // 蓝
-            // { value: 5,  color: '#72cc2e' }, // 绿
-            // { value: 10, color: '#e67e22' }, // 橙
-            { value: 30, color: 'rgb(185, 43, 39)' }, // 红（封顶）
+              { value: 2, color: '#42a5d7' },
+              { value: 10, color: '#52a90f' },
+              { value: 25, color: '#e67e22' },
+              { value: 50, color: '#e74c3c' }
           ];
+
           function getBadgeColorByStops(val) {
             if (!Array.isArray(BADGE_COLOR_STOPS) || BADGE_COLOR_STOPS.length === 0) return '#ffffff';
             // 边界：小于最小值/大于最大值直接返回端点色

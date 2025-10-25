@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>颜色停止点演示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        .form-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        
+        .stop-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: white;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        
+        .stop-item input {
+            margin-right: 10px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        
+        .color-input {
+            width: 100px;
+        }
+        
+        .value-input {
+            width: 60px;
+        }
+        
+        .btn {
+            padding: 8px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .btn-add {
+            background-color: #5cb85c;
+            color: white;
+        }
+        
+        .btn-remove {
+            background-color: #d9534f;
+            color: white;
+        }
+        
+        .btn-update {
+            background-color: #0275d8;
+            color: white;
+        }
+        
+        .btn-default {
+            background-color: #5bc0de;
+            color: white;
+        }
+        
+        .visualization-section {
+            margin-top: 30px;
+        }
+        
+        .color-bar {
+            height: 40px;
+            display: flex;
+            margin: 20px 0;
+            border-radius: 5px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .color-segment {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: white;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+        }
+        
+        .value-display {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .range-selector {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .range-selector input {
+            width: 100px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 16px;
+        }
+        
+        .stops-display {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #0275d8;
+        }
+        
+        .stops-display h3 {
+            margin-top: 0;
+        }
+        
+        .stops-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .stop-badge {
+            padding: 5px 10px;
+            border-radius: 15px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .json-display {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f4f4f4;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>颜色停止点演示</h1>
+        
+        <div class="form-section">
+            <h2>修改颜色停止点</h2>
+            <div id="stopsContainer">
+                <!-- 停止点表单项将通过JavaScript动态生成 -->
+            </div>
+            <button class="btn btn-add" onclick="addStop()">添加停止点</button>
+            <button class="btn btn-update" onclick="updateStops()">更新停止点</button>
+            <button class="btn btn-default" onclick="resetToDefault()">重置为默认</button>
+        </div>
+        
+        <div class="visualization-section">
+            <h2>颜色变化演示 (2-50)</h2>
+            
+            <div class="range-selector">
+                <label>选择值: </label>
+                <input type="number" id="valueInput" min="2" max="50" value="10" onchange="updateValueDisplay()">
+                <span id="valueDisplay">10</span>
+            </div>
+            
+            <div class="value-display">
+                当前值: <span id="currentValue">10</span> | 
+                颜色: <span id="currentColor" style="color:#e67e22">#e67e22</span>
+            </div>
+            
+            <div class="color-bar" id="colorBar">
+                <!-- 颜色条将通过JavaScript动态生成 -->
+            </div>
+            
+            <div class="stops-display">
+                <h3>当前停止点</h3>
+                <div class="stops-list" id="stopsList">
+                    <!-- 停止点列表将通过JavaScript动态生成 -->
+                </div>
+                
+                <div class="json-display">
+                    <h4>当前BADGE_COLOR_STOPS (可直接复制到JS代码):</h4>
+                    <div id="jsonDisplay"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="color.js"></script>
+    <script>
+        // 当前的停止点
+        let currentStops = [...BADGE_COLOR_STOPS];
+        
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', function() {
+            renderStopsForm();
+            renderColorBar();
+            updateStopsList();
+            updateValueDisplay();
+            updateJsonDisplay(); // 添加这行来初始化JSON显示
+        });
+        
+        // 渲染停止点表单
+        function renderStopsForm() {
+            const container = document.getElementById('stopsContainer');
+            container.innerHTML = '';
+            
+            currentStops.forEach((stop, index) => {
+                const stopItem = document.createElement('div');
+                stopItem.className = 'stop-item';
+                stopItem.innerHTML = `
+                    <input type="number" class="value-input" value="${stop.value}" min="1" step="1" onchange="updateStopValue(${index}, this.value)">
+                    <input type="color" class="color-input" value="${normalizeColor(stop.color)}" onchange="updateStopColor(${index}, this.value)">
+                    <button class="btn btn-remove" onclick="removeStop(${index})">删除</button>
+                `;
+                container.appendChild(stopItem);
+            });
+        }
+        
+        // 规范化颜色值为十六进制格式
+        function normalizeColor(color) {
+            if (color.startsWith('#')) {
+                return color;
+            } else if (color.startsWith('rgba') || color.startsWith('rgb')) {
+                // 简单的转换，实际应用中可能需要更复杂的转换
+                const rgb = parseColor(color);
+                return `#${rgb.r.toString(16).padStart(2, '0')}${rgb.g.toString(16).padStart(2, '0')}${rgb.b.toString(16).padStart(2, '0')}`;
+            }
+            return color;
+        }
+        
+        // 更新停止点的值
+        function updateStopValue(index, value) {
+            currentStops[index].value = parseFloat(value);
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 更新停止点的颜色
+        function updateStopColor(index, color) {
+            currentStops[index].color = color;
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 删除停止点
+        function removeStop(index) {
+            if (currentStops.length <= 1) {
+                alert('至少需要一个停止点！');
+                return;
+            }
+            currentStops.splice(index, 1);
+            renderStopsForm();
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 添加新的停止点
+        function addStop() {
+            currentStops.push({ value: 25, color: '#9b59b6' });
+            renderStopsForm();
+        }
+        
+        // 更新停止点到全局变量
+        function updateStops() {
+            // 按值排序
+            currentStops.sort((a, b) => a.value - b.value);
+            updateBadgeColorStops(currentStops);
+            renderColorBar();
+            updateStopsList();
+            renderStopsForm(); // 重新渲染以保持顺序
+        }
+        
+        // 重置为默认停止点
+        function resetToDefault() {
+            currentStops = [
+                { value: 2, color: 'rgba(103, 167, 199, 1)' }, // 蓝
+                { value: 5, color: '#72cc2e' }, // 绿
+                { value: 10, color: '#e67e22' }, // 橙
+                { value: 30, color: '#e74c3c' }, // 红（封顶）
+            ];
+            updateBadgeColorStops(currentStops);
+            renderStopsForm();
+            renderColorBar();
+            updateStopsList();
+        }
+        
+        // 渲染颜色条
+        function renderColorBar() {
+            const colorBar = document.getElementById('colorBar');
+            colorBar.innerHTML = '';
+            
+            // 创建2到50的渐变段
+            for (let i = 2; i <= 50; i++) {
+                const segment = document.createElement('div');
+                segment.className = 'color-segment';
+                segment.style.backgroundColor = getBadgeColorByStops(i);
+                
+                // 每隔5个值显示一次数字
+                if (i % 5 === 0) {
+                    segment.textContent = i;
+                }
+                
+                colorBar.appendChild(segment);
+            }
+        }
+        
+        // 更新值显示
+        function updateValueDisplay() {
+            const valueInput = document.getElementById('valueInput');
+            const value = parseFloat(valueInput.value);
+            
+            // 限制值在2-50范围内
+            if (value < 2) {
+                valueInput.value = 2;
+            } else if (value > 50) {
+                valueInput.value = 50;
+            }
+            
+            const actualValue = Math.min(Math.max(2, value), 50);
+            
+            document.getElementById('currentValue').textContent = actualValue;
+            document.getElementById('currentColor').textContent = getBadgeColorByStops(actualValue);
+            document.getElementById('currentColor').style.color = getBadgeColorByStops(actualValue);
+            document.getElementById('valueDisplay').textContent = actualValue;
+        }
+        
+        // 更新停止点列表显示
+        function updateStopsList() {
+            const stopsList = document.getElementById('stopsList');
+            stopsList.innerHTML = '';
+            
+            currentStops.forEach(stop => {
+                const badge = document.createElement('span');
+                badge.className = 'stop-badge';
+                badge.textContent = `${stop.value}: ${stop.color}`;
+                badge.style.backgroundColor = stop.color;
+                
+                // 如果背景色太浅，使用黑色文字
+                const rgb = parseColor(stop.color);
+                const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+                if (brightness > 150) {
+                    badge.style.color = 'black';
+                }
+                
+                stopsList.appendChild(badge);
+            });
+            
+            // 更新JSON显示
+            updateJsonDisplay();
+        }
+        
+        // 更新JSON显示
+        function updateJsonDisplay() {
+            const jsonDisplay = document.getElementById('jsonDisplay');
+            let jsCode = 'var BADGE_COLOR_STOPS = [\n';
+            currentStops.forEach((stop, index) => {
+                const comma = index === currentStops.length - 1 ? '' : ',';
+                jsCode += `    { value: ${stop.value}, color: '${stop.color}' }${comma}\n`;
+            });
+            jsCode += '];';
+            jsonDisplay.textContent = jsCode;
+        }
+        
+        // 解析颜色函数
+        function parseColor(color) {
+            if (color.startsWith('#')) {
+                // 处理十六进制颜色
+                color = color.replace('#', '');
+                if (color.length === 3) {
+                    color = color[0] + color[0] + color[1] + color[1] + color[2] + color[2];
+                }
+                return {
+                    r: parseInt(color.substring(0, 2), 16),
+                    g: parseInt(color.substring(2, 4), 16),
+                    b: parseInt(color.substring(4, 6), 16),
+                    a: 1
+                };
+            } else if (color.startsWith('rgba')) {
+                // 处理rgba格式
+                const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+                if (match) {
+                    return {
+                        r: parseInt(match[1]),
+                        g: parseInt(match[2]),
+                        b: parseInt(match[3]),
+                        a: match[4] ? parseFloat(match[4]) : 1
+                    };
+                }
+            } else if (color.startsWith('rgb')) {
+                // 处理rgb格式
+                const match = color.match(/rgb?\((\d+),\s*(\d+),\s*(\d+)\)/);
+                if (match) {
+                    return {
+                        r: parseInt(match[1]),
+                        g: parseInt(match[2]),
+                        b: parseInt(match[3]),
+                        a: 1
+                    };
+                }
+            }
+            
+            // 默认返回白色
+            return { r: 255, g: 255, b: 255, a: 1 };
+        }
+    </script>
+</body>
+</html>
