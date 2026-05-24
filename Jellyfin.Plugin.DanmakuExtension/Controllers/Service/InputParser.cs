@@ -38,7 +38,10 @@ public partial class DanmakuService
             var parts = p.Split(',', 4);
             if (parts.Length >= 1 && double.TryParse(parts[0], out var t)) dm.time_ms = t * 1000.0;
             if (parts.Length >= 2 && int.TryParse(parts[1], out var m)) dm.mode = m;
-            if (parts.Length >= 3 && int.TryParse(parts[2], out var c)) dm.color = c;
+            if (parts.Length >= 3 && int.TryParse(parts[2], out var c))
+            {
+                dm.color = c == 0 ? 16777215 : c;
+            }
             if (parts.Length >= 4)
             {
                 dm.uid = parts[3];

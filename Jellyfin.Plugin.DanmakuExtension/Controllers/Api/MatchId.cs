@@ -117,7 +117,7 @@ public partial class DanmakuController
 
     #region GET match_source_info
     // 根据 episode_id 查询相关视频 URL 列表，并按域名包含 name 过滤
-    // 调用外部 /api/v2/related/{episodeId} 接口，返回 ["url1","url2"]
+    // 调用外部 /api/v2/comment/{episodeId}?withRelated=true 接口，返回包含 relateds 的 JSON
     [HttpGet("match_source_info")]
     [Produces("application/json")]
     public async Task<IActionResult> GetMatchSourceInfo(
@@ -133,11 +133,14 @@ public partial class DanmakuController
                 return BadRequest("episode_id is required and must be a positive number");
             }
             var baseUrl = _danmakuService.GetBaseUrl();
-            var path = $"/api/v2/related/{episodeId}";
+            var path = $"/api/v2/comment/{episodeId}";
             string json;
             try
             {
-                json = await _danmakuService.SendWithCacheAsync(HttpMethod.Get, baseUrl, path);
+                json = await _danmakuService.SendWithCacheAsync(HttpMethod.Get, baseUrl, path, new Dictionary<string, string>
+                {
+                    ["withRelated"] = "true"
+                });
             }
             catch (Exception exFetch)
             {
@@ -153,11 +156,39 @@ public partial class DanmakuController
                 {
                     foreach (var el in relArr.EnumerateArray())
                     {
-                        if (el.ValueKind != JsonValueKind.Object) continue;
-                        if (el.TryGetProperty("url", out var urlProp) && urlProp.ValueKind == JsonValueKind.String)
+                        string? value = null;
+                        if (el.ValueKind == JsonValueKind.Object)
                         {
-                            var u = urlProp.GetString();
-                            if (!string.IsNullOrWhiteSpace(u)) urls.Add(u!);
+                            if (el.TryGetProperty("url", out var urlProp) && urlProp.ValueKind == JsonValueKind.String)
+                            {
+                                value = urlProp.GetString();
+                            }
+                            else if (el.TryGetProperty("source", out var sourceProp) && sourceProp.ValueKind == JsonValueKind.String)
+                            {
+                                value = sourceProp.GetString();
+                            }
+                        }
+                        else if (el.ValueKind == JsonValueKind.String)
+                        {
+                            value = el.GetString();
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(value)) urls.Add(value!);
+                    }
+                }
+                else if (doc.RootElement.TryGetProperty("comments", out var comments) && comments.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in comments.EnumerateArray())
+                    {
+                        if (el.ValueKind != JsonValueKind.Object) continue;
+                        if (el.TryGetProperty("m", out var msgProp) && msgProp.ValueKind == JsonValueKind.String)
+                        {
+                            var message = msgProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(message)) urls.Add(message!);
+                        }
+                        else if (el.TryGetProperty("cid", out var cidProp) && cidProp.ValueKind == JsonValueKind.Number)
+                        {
+                            urls.Add(cidProp.GetInt64().ToString());
                         }
                     }
                 }
